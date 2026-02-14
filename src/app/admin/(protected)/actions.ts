@@ -467,13 +467,18 @@ export async function addAdminByEmailAction(formData: FormData) {
   if (!matchedUser) {
     const directRedirect = process.env.ADMIN_INVITE_REDIRECT_URL?.trim();
     const siteUrl = process.env.NEXT_PUBLIC_SITE_URL?.trim();
-    const redirectTo = directRedirect || (siteUrl ? `${siteUrl.replace(/\/$/, "")}/admin/login` : undefined);
+    const defaultInviteRedirect = siteUrl
+      ? `${siteUrl.replace(/\/$/, "")}/admin/create/login?invite=1`
+      : undefined;
+    const redirectTo = directRedirect || defaultInviteRedirect;
 
     const { data: inviteData, error: inviteError } = await supabase.auth.admin.inviteUserByEmail(
       email,
       {
         ...(redirectTo ? { redirectTo } : {}),
-        ...(fullName ? { data: { full_name: fullName } } : {}),
+        ...(fullName
+          ? { data: { full_name: fullName } }
+          : {}),
       },
     );
 
