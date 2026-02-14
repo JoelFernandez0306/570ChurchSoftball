@@ -1,6 +1,8 @@
 import Link from "next/link";
 import { ChangePasswordForm } from "@/components/change-password-form";
 import {
+  formatCompetitionPhaseLabel,
+  loadActiveCompetitionPhase,
   loadActiveSeasonName,
   loadGamesView,
   loadTeamsWithRoster,
@@ -16,14 +18,16 @@ import {
 export const dynamic = "force-dynamic";
 
 export default async function AdminDashboardPage() {
-  const [teams, games, standings, smsNumbers, admins, activeSeasonName] = await Promise.all([
+  const [teams, games, standings, smsNumbers, admins, activeSeasonName, activeCompetitionPhase] =
+    await Promise.all([
     loadTeamsWithRoster(),
     loadGamesView(),
     loadStandings(),
     loadAllowedSmsNumbers(),
     loadAdmins(),
     loadActiveSeasonName(),
-  ]);
+    loadActiveCompetitionPhase(),
+    ]);
 
   const reported = games.filter((game) => game.winner_team_id || game.is_tie).length;
 
@@ -33,7 +37,10 @@ export default async function AdminDashboardPage() {
         <div className="page-header">
           <div>
             <h2>Admin Dashboard</h2>
-            <p>Manage league setup, report results, and maintain standings for {activeSeasonName}.</p>
+            <p>
+              Manage league setup, report results, and maintain standings for {activeSeasonName} (
+              {formatCompetitionPhaseLabel(activeCompetitionPhase)}).
+            </p>
           </div>
         </div>
 

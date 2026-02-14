@@ -2,17 +2,24 @@ import Link from "next/link";
 import { SiteHeader } from "@/components/site-header";
 import { ScheduleTable } from "@/components/schedule-table";
 import { StandingsTable } from "@/components/standings-table";
-import { loadActiveSeasonName, loadGamesView, loadTeamsWithRoster } from "@/lib/league-data";
+import {
+  formatCompetitionPhaseLabel,
+  loadActiveCompetitionPhase,
+  loadActiveSeasonName,
+  loadGamesView,
+  loadTeamsWithRoster,
+} from "@/lib/league-data";
 import { loadStandings } from "@/lib/standings";
 
 export const dynamic = "force-dynamic";
 
 export default async function HomePage() {
-  const [games, standings, teams, activeSeasonName] = await Promise.all([
+  const [games, standings, teams, activeSeasonName, activeCompetitionPhase] = await Promise.all([
     loadGamesView(),
     loadStandings(),
     loadTeamsWithRoster(),
     loadActiveSeasonName(),
+    loadActiveCompetitionPhase(),
   ]);
 
   const topThree = standings.slice(0, 3);
@@ -29,7 +36,7 @@ export default async function HomePage() {
                 <h2>Season Headquarters</h2>
                 <p>
                   Follow every matchup, roster move, and standings update in one place for{" "}
-                  {activeSeasonName}.
+                  {activeSeasonName} ({formatCompetitionPhaseLabel(activeCompetitionPhase)}).
                 </p>
               </div>
             </div>

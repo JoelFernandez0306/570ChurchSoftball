@@ -1,6 +1,6 @@
 import { getServiceSupabaseClient } from "@/lib/supabase/service";
 import { formatInTimeZone } from "date-fns-tz";
-import type { Game, LeagueSettings, Player, Team, TeamAlias } from "@/lib/types";
+import type { CompetitionPhase, Game, LeagueSettings, Player, Team, TeamAlias } from "@/lib/types";
 
 export interface GameView extends Game {
   home_team_name: string;
@@ -19,15 +19,50 @@ function fallbackSeasonName(timezone = "America/New_York"): string {
   return `Season ${currentYear}`;
 }
 
+export const DEFAULT_COMPETITION_PHASE: CompetitionPhase = "regular_season";
+
+function normalizeCompetitionPhase(value: string | null | undefined): CompetitionPhase {
+  return value === "playoffs" ? "playoffs" : DEFAULT_COMPETITION_PHASE;
+}
+
+export function formatCompetitionPhaseLabel(phase: CompetitionPhase): string {
+  return phase === "playoffs" ? "Playoffs" : "Regular Season";
+}
+
 export async function loadLeagueSettings(): Promise<LeagueSettings> {
   const supabase = getServiceSupabaseClient();
   const { data, error } = await supabase
     .schema("league")
     .from("settings")
-    .select("id,league_name,season_year,timezone,active_season_name,created_at,updated_at")
+    .select(
+      "id,league_name,season_year,timezone,active_season_name,active_competition_phase,created_at,updated_at",
+    )
     .order("updated_at", { ascending: false })
     .limit(1)
     .maybeSingle();
+
+  if (error && error.message.includes("active_competition_phase")) {
+    const legacyResult = await supabase
+      .schema("league")
+      .from("settings")
+      .select("id,league_name,season_year,timezone,active_season_name,created_at,updated_at")
+      .order("updated_at", { ascending: false })
+      .limit(1)
+      .maybeSingle();
+
+    if (legacyResult.error) {
+      throw new Error(`Failed to load settings: ${legacyResult.error.message}`);
+    }
+
+    if (!legacyResult.data) {
+      throw new Error("League settings not found.");
+    }
+
+    return {
+      ...(legacyResult.data as Omit<LeagueSettings, "active_competition_phase">),
+      active_competition_phase: DEFAULT_COMPETITION_PHASE,
+    };
+  }
 
   if (error) {
     throw new Error(`Failed to load settings: ${error.message}`);
@@ -37,13 +72,34 @@ export async function loadLeagueSettings(): Promise<LeagueSettings> {
     throw new Error("League settings not found.");
   }
 
-  return data as LeagueSettings;
+  return {
+    ...(data as Omit<LeagueSettings, "active_competition_phase">),
+    active_competition_phase: normalizeCompetitionPhase(
+      (data as { active_competition_phase?: string | null }).active_competition_phase,
+    ),
+  };
 }
 
 export async function loadActiveSeasonName(): Promise<string> {
   const settings = await loadLeagueSettings();
   const seasonName = settings.active_season_name?.trim();
   return seasonName || fallbackSeasonName(settings.timezone);
+}
+
+export async function loadActiveCompetitionPhase(): Promise<CompetitionPhase> {
+  const settings = await loadLeagueSettings();
+  return normalizeCompetitionPhase(settings.active_competition_phase);
+}
+
+export async function loadActiveLeagueScope(): Promise<{
+  seasonName: string;
+  competitionPhase: CompetitionPhase;
+}> {
+  const settings = await loadLeagueSettings();
+  return {
+    seasonName: settings.active_season_name?.trim() || fallbackSeasonName(settings.timezone),
+    competitionPhase: normalizeCompetitionPhase(settings.active_competition_phase),
+  };
 }
 
 export async function loadTeams(): Promise<Team[]> {
@@ -105,29 +161,69 @@ export async function loadTeamsWithRoster(): Promise<TeamWithRoster[]> {
   }));
 }
 
-export async function loadGames(seasonName?: string): Promise<Game[]> {
+export async function loadGames(
+  seasonName?: string,
+  competitionPhase?: CompetitionPhase,
+): Promise<Game[]> {
   const supabase = getServiceSupabaseClient();
-  const activeSeasonName = seasonName ?? (await loadActiveSeasonName());
-  const { data, error } = await supabase
+  const scope =
+    seasonName && competitionPhase
+      ? { seasonName, competitionPhase }
+      : seasonName
+        ? { seasonName, competitionPhase: DEFAULT_COMPETITION_PHASE }
+        : await loadActiveLeagueScope();
+
+  const primaryResult = await supabase
     .schema("league")
     .from("games")
     .select(
-      "id,season_name,game_date,game_time,location,game_number,home_team_id,away_team_id,is_tie,winner_team_id,loser_team_id,result_source,created_at,updated_at",
+      "id,season_name,game_phase,game_date,game_time,location,game_number,home_team_id,away_team_id,is_tie,winner_team_id,loser_team_id,result_source,created_at,updated_at",
     )
-    .eq("season_name", activeSeasonName)
+    .eq("season_name", scope.seasonName)
+    .eq("game_phase", scope.competitionPhase)
     .order("game_date", { ascending: true })
     .order("game_number", { ascending: true })
     .order("game_time", { ascending: true });
 
-  if (error) {
-    throw new Error(`Failed to load games: ${error.message}`);
+  if (primaryResult.error && primaryResult.error.message.includes("game_phase")) {
+    const legacyResult = await supabase
+      .schema("league")
+      .from("games")
+      .select(
+        "id,season_name,game_date,game_time,location,game_number,home_team_id,away_team_id,is_tie,winner_team_id,loser_team_id,result_source,created_at,updated_at",
+      )
+      .eq("season_name", scope.seasonName)
+      .order("game_date", { ascending: true })
+      .order("game_number", { ascending: true })
+      .order("game_time", { ascending: true });
+
+    if (legacyResult.error) {
+      throw new Error(`Failed to load games: ${legacyResult.error.message}`);
+    }
+
+    return (legacyResult.data ?? []).map((game) => ({
+      ...(game as Omit<Game, "game_phase">),
+      game_phase: DEFAULT_COMPETITION_PHASE,
+    }));
   }
 
-  return (data ?? []) as Game[];
+  if (primaryResult.error) {
+    throw new Error(`Failed to load games: ${primaryResult.error.message}`);
+  }
+
+  return (primaryResult.data ?? []).map((game) => ({
+    ...(game as Omit<Game, "game_phase">),
+    game_phase: normalizeCompetitionPhase(
+      (game as { game_phase?: string | null }).game_phase,
+    ),
+  }));
 }
 
-export async function loadGamesView(seasonName?: string): Promise<GameView[]> {
-  const [games, teams] = await Promise.all([loadGames(seasonName), loadTeams()]);
+export async function loadGamesView(
+  seasonName?: string,
+  competitionPhase?: CompetitionPhase,
+): Promise<GameView[]> {
+  const [games, teams] = await Promise.all([loadGames(seasonName, competitionPhase), loadTeams()]);
   const teamMap = new Map(teams.map((team) => [team.id, team.name]));
 
   return games.map((game) => ({
@@ -149,6 +245,25 @@ export async function countGamesForSeason(seasonName: string): Promise<number> {
 
   if (error) {
     throw new Error(`Failed to count games for season: ${error.message}`);
+  }
+
+  return count ?? 0;
+}
+
+export async function countGamesForScope(
+  seasonName: string,
+  competitionPhase: CompetitionPhase,
+): Promise<number> {
+  const supabase = getServiceSupabaseClient();
+  const { count, error } = await supabase
+    .schema("league")
+    .from("games")
+    .select("id", { count: "exact", head: true })
+    .eq("season_name", seasonName)
+    .eq("game_phase", competitionPhase);
+
+  if (error) {
+    throw new Error(`Failed to count games for scope: ${error.message}`);
   }
 
   return count ?? 0;

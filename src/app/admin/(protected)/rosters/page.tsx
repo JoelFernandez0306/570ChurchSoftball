@@ -1,10 +1,17 @@
 import { createPlayerAction, deletePlayerAction } from "@/app/admin/(protected)/actions";
+import { RosterBuilderForm } from "@/components/roster-builder-form";
 import { loadTeamsWithRoster } from "@/lib/league-data";
 
 export const dynamic = "force-dynamic";
 
-export default async function AdminRostersPage() {
+export default async function AdminRostersPage({
+  searchParams,
+}: {
+  searchParams: Promise<{ team_id?: string }>;
+}) {
+  const params = await searchParams;
   const teams = await loadTeamsWithRoster();
+  const initialTeamId = typeof params.team_id === "string" ? params.team_id : "";
 
   return (
     <>
@@ -16,43 +23,11 @@ export default async function AdminRostersPage() {
           </div>
         </div>
 
-        <form action={createPlayerAction} className="form-grid">
-          <label>
-            Team
-            <select name="team_id" required defaultValue="">
-              <option value="" disabled>
-                Select team
-              </option>
-              {teams.map((team) => (
-                <option key={team.id} value={team.id}>
-                  {team.name}
-                </option>
-              ))}
-            </select>
-          </label>
-
-          <label>
-            Full name
-            <input name="full_name" placeholder="John Smith" required />
-          </label>
-
-          <label>
-            Jersey # (optional)
-            <input name="jersey_number" placeholder="12" />
-          </label>
-
-          <label>
-            Role
-            <select name="role" defaultValue="player">
-              <option value="player">Player</option>
-              <option value="coach">Coach</option>
-            </select>
-          </label>
-
-          <div style={{ alignSelf: "end" }}>
-            <button type="submit">Add To Roster</button>
-          </div>
-        </form>
+        <RosterBuilderForm
+          teams={teams.map((team) => ({ id: team.id, name: team.name }))}
+          initialTeamId={initialTeamId}
+          createPlayerAction={createPlayerAction}
+        />
       </section>
 
       <section className="page-surface">

@@ -2,11 +2,11 @@ import Link from "next/link";
 
 const adminLinks = [
   { href: "/admin/dashboard", label: "Dashboard" },
-  { href: "/admin/teams", label: "Teams" },
-  { href: "/admin/rosters", label: "Rosters" },
-  { href: "/admin/schedule", label: "Schedule" },
+  { href: "/admin/teams", label: "Create Teams" },
+  { href: "/admin/rosters", label: "Create Rosters" },
+  { href: "/admin/schedule", label: "Schedule Builder" },
   { href: "/admin/quick-result", label: "Quick Game Score" },
-  { href: "/admin/rules", label: "Rules" },
+  { href: "/admin/rules", label: "Create Rules" },
   { href: "/admin/standings", label: "Standings" },
   { href: "/admin/sms", label: "SMS" },
 ];

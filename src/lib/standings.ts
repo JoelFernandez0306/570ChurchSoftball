@@ -1,6 +1,9 @@
 import { getServiceSupabaseClient } from "@/lib/supabase/service";
-import { loadActiveSeasonName } from "@/lib/league-data";
-import type { StandingsRow, Team, TieOverride } from "@/lib/types";
+import {
+  DEFAULT_COMPETITION_PHASE,
+  loadActiveLeagueScope,
+} from "@/lib/league-data";
+import type { CompetitionPhase, StandingsRow, Team, TieOverride } from "@/lib/types";
 
 interface GameResultRow {
   home_team_id: string;
@@ -255,17 +258,36 @@ export function computeStandings(
   }));
 }
 
-export async function loadStandings(seasonName?: string): Promise<StandingsRow[]> {
+export async function loadStandings(
+  seasonName?: string,
+  competitionPhase?: CompetitionPhase,
+): Promise<StandingsRow[]> {
   const supabase = getServiceSupabaseClient();
-  const activeSeasonName = seasonName ?? (await loadActiveSeasonName());
+  const scope =
+    seasonName && competitionPhase
+      ? { seasonName, competitionPhase }
+      : seasonName
+        ? { seasonName, competitionPhase: DEFAULT_COMPETITION_PHASE as CompetitionPhase }
+        : await loadActiveLeagueScope();
 
-  const [teamsResult, gamesResult, overridesResult] = await Promise.all([
+  const gamesResult = await supabase
+    .schema("league")
+    .from("games")
+    .select("home_team_id,away_team_id,is_tie,winner_team_id,loser_team_id")
+    .eq("season_name", scope.seasonName)
+    .eq("game_phase", scope.competitionPhase);
+
+  const fallbackGamesResult =
+    gamesResult.error && gamesResult.error.message.includes("game_phase")
+      ? await supabase
+          .schema("league")
+          .from("games")
+          .select("home_team_id,away_team_id,is_tie,winner_team_id,loser_team_id")
+          .eq("season_name", scope.seasonName)
+      : null;
+
+  const [teamsResult, overridesResult] = await Promise.all([
     supabase.schema("league").from("teams").select("id,name").order("name"),
-    supabase
-      .schema("league")
-      .from("games")
-      .select("home_team_id,away_team_id,is_tie,winner_team_id,loser_team_id")
-      .eq("season_name", activeSeasonName),
     supabase
       .schema("league")
       .from("tie_overrides")
@@ -277,8 +299,10 @@ export async function loadStandings(seasonName?: string): Promise<StandingsRow[]
     throw new Error(`Failed to load teams: ${teamsResult.error.message}`);
   }
 
-  if (gamesResult.error) {
-    throw new Error(`Failed to load games: ${gamesResult.error.message}`);
+  const selectedGamesResult = fallbackGamesResult ?? gamesResult;
+
+  if (selectedGamesResult.error) {
+    throw new Error(`Failed to load games: ${selectedGamesResult.error.message}`);
   }
 
   if (overridesResult.error) {
@@ -287,7 +311,7 @@ export async function loadStandings(seasonName?: string): Promise<StandingsRow[]
 
   return computeStandings(
     teamsResult.data ?? [],
-    gamesResult.data ?? [],
+    selectedGamesResult.data ?? [],
     overridesResult.data ?? [],
   );
 }

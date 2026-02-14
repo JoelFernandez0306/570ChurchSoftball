@@ -3,9 +3,15 @@ import { z } from "zod";
 import { revalidatePath } from "next/cache";
 import { requireAdminApiAccess } from "@/lib/auth";
 import { getServiceSupabaseClient } from "@/lib/supabase/service";
+import {
+  DEFAULT_COMPETITION_PHASE,
+  formatCompetitionPhaseLabel,
+} from "@/lib/league-data";
+import type { CompetitionPhase } from "@/lib/types";
 
 const seasonSchema = z.object({
   seasonName: z.string().trim().min(1).max(120),
+  competitionPhase: z.enum(["regular_season", "playoffs"]).optional(),
   confirmNewSeason: z.boolean().optional().default(false),
 });
 
@@ -37,7 +43,7 @@ export async function POST(request: Request) {
     const { data: settings, error: settingsError } = await supabase
       .schema("league")
       .from("settings")
-      .select("id,active_season_name,season_year")
+      .select("id,active_season_name,active_competition_phase,season_year")
       .order("updated_at", { ascending: false })
       .limit(1)
       .maybeSingle();
@@ -51,33 +57,54 @@ export async function POST(request: Request) {
     }
 
     const currentSeasonName = normalizeSeasonName(settings.active_season_name ?? "");
-    if (currentSeasonName === nextSeasonName) {
-      return NextResponse.json({ ok: true, message: "Active season already set to this value." });
+    const currentCompetitionPhase =
+      settings.active_competition_phase === "playoffs"
+        ? "playoffs"
+        : DEFAULT_COMPETITION_PHASE;
+    const nextCompetitionPhase =
+      payload.competitionPhase === "playoffs"
+        ? "playoffs"
+        : payload.competitionPhase === "regular_season"
+          ? "regular_season"
+          : currentCompetitionPhase;
+
+    const seasonChanged = currentSeasonName !== nextSeasonName;
+    const phaseChanged = currentCompetitionPhase !== nextCompetitionPhase;
+
+    if (!seasonChanged && !phaseChanged) {
+      return NextResponse.json({ ok: true, message: "Active season and phase are already set." });
     }
 
-    const { count: currentSeasonGameCount, error: countError } = await supabase
-      .schema("league")
-      .from("games")
-      .select("id", { count: "exact", head: true })
-      .eq("season_name", currentSeasonName);
+    if (seasonChanged) {
+      const { count: currentSeasonGameCount, error: countError } = await supabase
+        .schema("league")
+        .from("games")
+        .select("id", { count: "exact", head: true })
+        .eq("season_name", currentSeasonName);
 
-    if (countError) {
-      return NextResponse.json({ error: countError.message }, { status: 500 });
-    }
+      if (countError) {
+        return NextResponse.json({ error: countError.message }, { status: 500 });
+      }
 
-    if ((currentSeasonGameCount ?? 0) > 0 && !payload.confirmNewSeason) {
-      return NextResponse.json(
-        {
-          error:
-            "Changing season name starts a new season. Confirm the warning and try again.",
-        },
-        { status: 409 },
-      );
+      if ((currentSeasonGameCount ?? 0) > 0 && !payload.confirmNewSeason) {
+        return NextResponse.json(
+          {
+            error:
+              "Changing season name starts a new season. Confirm the warning and try again.",
+          },
+          { status: 409 },
+        );
+      }
     }
 
     const seasonYearFromName = parseSeasonYear(nextSeasonName);
-    const updatePayload: { active_season_name: string; season_year?: number } = {
+    const updatePayload: {
+      active_season_name: string;
+      active_competition_phase: CompetitionPhase;
+      season_year?: number;
+    } = {
       active_season_name: nextSeasonName,
+      active_competition_phase: nextCompetitionPhase,
     };
 
     if (seasonYearFromName) {
@@ -94,18 +121,20 @@ export async function POST(request: Request) {
       return NextResponse.json({ error: updateError.message }, { status: 500 });
     }
 
-    const { error: tieOverrideError } = await supabase
-      .schema("league")
-      .from("tie_overrides")
-      .update({
-        active: false,
-        updated_by: admin.user.id,
-        reason: `Archived after season change to ${nextSeasonName}`,
-      })
-      .eq("active", true);
+    if (seasonChanged) {
+      const { error: tieOverrideError } = await supabase
+        .schema("league")
+        .from("tie_overrides")
+        .update({
+          active: false,
+          updated_by: admin.user.id,
+          reason: `Archived after season change to ${nextSeasonName}`,
+        })
+        .eq("active", true);
 
-    if (tieOverrideError) {
-      return NextResponse.json({ error: tieOverrideError.message }, { status: 500 });
+      if (tieOverrideError) {
+        return NextResponse.json({ error: tieOverrideError.message }, { status: 500 });
+      }
     }
 
     revalidatePath("/");
@@ -117,7 +146,7 @@ export async function POST(request: Request) {
 
     return NextResponse.json({
       ok: true,
-      message: `Active season updated to ${nextSeasonName}.`,
+      message: `Active scope updated to ${nextSeasonName} (${formatCompetitionPhaseLabel(nextCompetitionPhase)}).`,
     });
   } catch (error) {
     if (error instanceof z.ZodError) {

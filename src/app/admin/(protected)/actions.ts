@@ -1,9 +1,14 @@
 "use server";
 
 import { revalidatePath } from "next/cache";
+import { redirect } from "next/navigation";
 import { requireAdminPageAccess } from "@/lib/auth";
 import { getServiceSupabaseClient } from "@/lib/supabase/service";
 import { cleanPhone, normalizeAlias } from "@/lib/utils";
+import {
+  DEFAULT_COMPETITION_PHASE,
+} from "@/lib/league-data";
+import type { CompetitionPhase } from "@/lib/types";
 
 function parseGameNumber(value: FormDataEntryValue | null): 1 | 2 {
   const raw = Number(value);
@@ -12,6 +17,12 @@ function parseGameNumber(value: FormDataEntryValue | null): 1 | 2 {
 
 function parseRosterRole(value: FormDataEntryValue | null): "player" | "coach" {
   return String(value ?? "").toLowerCase() === "coach" ? "coach" : "player";
+}
+
+function parseCompetitionPhase(value: FormDataEntryValue | null): CompetitionPhase {
+  return String(value ?? "").toLowerCase() === "playoffs"
+    ? "playoffs"
+    : DEFAULT_COMPETITION_PHASE;
 }
 
 export async function createTeamAction(formData: FormData) {
@@ -136,6 +147,7 @@ export async function createPlayerAction(formData: FormData) {
 
   revalidatePath("/admin/rosters");
   revalidatePath("/teams");
+  redirect(`/admin/rosters?team_id=${encodeURIComponent(teamId)}`);
 }
 
 export async function deletePlayerAction(formData: FormData) {
@@ -165,6 +177,7 @@ export async function createGameAction(formData: FormData) {
   const gameTime = String(formData.get("game_time") ?? "").trim();
   const location = String(formData.get("location") ?? "").trim();
   const gameNumber = parseGameNumber(formData.get("game_number"));
+  const gamePhase = parseCompetitionPhase(formData.get("game_phase"));
   const homeTeamId = String(formData.get("home_team_id") ?? "");
   const awayTeamId = String(formData.get("away_team_id") ?? "");
 
@@ -179,7 +192,7 @@ export async function createGameAction(formData: FormData) {
   const { data: settings, error: settingsError } = await supabase
     .schema("league")
     .from("settings")
-    .select("active_season_name")
+    .select("id,active_season_name")
     .order("updated_at", { ascending: false })
     .limit(1)
     .maybeSingle();
@@ -195,6 +208,7 @@ export async function createGameAction(formData: FormData) {
 
   const { error } = await supabase.schema("league").from("games").insert({
     season_name: activeSeasonName,
+    game_phase: gamePhase,
     game_date: gameDate,
     game_time: gameTime || null,
     location: location || null,
@@ -208,11 +222,21 @@ export async function createGameAction(formData: FormData) {
     throw new Error(`Failed to create game: ${error.message}`);
   }
 
+  // Keep selected phase sticky for the next game slot form load.
+  if (settings?.id) {
+    await supabase
+      .schema("league")
+      .from("settings")
+      .update({ active_competition_phase: gamePhase })
+      .eq("id", settings.id);
+  }
+
   revalidatePath("/admin/schedule");
   revalidatePath("/schedule");
   revalidatePath("/admin/standings");
   revalidatePath("/standings");
   revalidatePath("/");
+  redirect(`/admin/schedule?game_phase=${encodeURIComponent(gamePhase)}`);
 }
 
 export async function updateGameResultAction(formData: FormData) {

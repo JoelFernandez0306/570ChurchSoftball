@@ -1,17 +1,30 @@
 import { StandingsTable } from "@/components/standings-table";
 import { TieOverrideForm } from "@/components/tie-override-form";
 import { loadStandings } from "@/lib/standings";
-import { loadActiveSeasonName, loadTeams, loadTieOverrides } from "@/lib/league-data";
+import {
+  countGamesForScope,
+  formatCompetitionPhaseLabel,
+  loadActiveCompetitionPhase,
+  loadActiveSeasonName,
+  loadTeams,
+  loadTieOverrides,
+} from "@/lib/league-data";
 
 export const dynamic = "force-dynamic";
 
 export default async function AdminStandingsPage() {
-  const [standings, teams, overrides, activeSeasonName] = await Promise.all([
-    loadStandings(),
+  const [teams, overrides, activeSeasonName, activeCompetitionPhase] = await Promise.all([
     loadTeams(),
     loadTieOverrides(),
     loadActiveSeasonName(),
+    loadActiveCompetitionPhase(),
   ]);
+  const [regularSeasonStandings, playoffStandings, playoffGameCount] = await Promise.all([
+    loadStandings(activeSeasonName, "regular_season"),
+    loadStandings(activeSeasonName, "playoffs"),
+    countGamesForScope(activeSeasonName, "playoffs"),
+  ]);
+  const showPlayoffStandings = playoffGameCount > 0 || activeCompetitionPhase === "playoffs";
 
   const overrideMap = new Map(overrides.map((override) => [override.team_id, override.priority]));
 
@@ -21,11 +34,33 @@ export default async function AdminStandingsPage() {
         <div className="page-header">
           <div>
             <h2>Standings Admin</h2>
-            <p>Standings auto-calculate after every game result for {activeSeasonName}.</p>
+            <p>
+              Standings auto-calculate after every game result for {activeSeasonName}.
+            </p>
           </div>
+          <span className="token" style={{ whiteSpace: "nowrap" }}>
+            {activeCompetitionPhase === "regular_season" ? "Active: " : ""}
+            {activeSeasonName} ({formatCompetitionPhaseLabel("regular_season")})
+          </span>
         </div>
-        <StandingsTable rows={standings} />
+        <StandingsTable rows={regularSeasonStandings} />
       </section>
+
+      {showPlayoffStandings ? (
+        <section className="page-surface">
+          <div className="page-header">
+            <div>
+              <h2>Standings Admin</h2>
+              <p>Playoff standings for this same season.</p>
+            </div>
+            <span className="token" style={{ whiteSpace: "nowrap" }}>
+              {activeCompetitionPhase === "playoffs" ? "Active: " : ""}
+              {activeSeasonName} ({formatCompetitionPhaseLabel("playoffs")})
+            </span>
+          </div>
+          <StandingsTable rows={playoffStandings} />
+        </section>
+      ) : null}
 
       <section className="page-surface stack">
         <div className="page-header">

@@ -2,6 +2,7 @@ export type UUID = string;
 
 export type GameSlot = 1 | 2;
 export type ResultSource = "sms" | "manual";
+export type CompetitionPhase = "regular_season" | "playoffs";
 
 export interface Team {
   id: UUID;
@@ -28,6 +29,7 @@ export interface Player {
 export interface Game {
   id: UUID;
   season_name: string;
+  game_phase: CompetitionPhase;
   game_date: string;
   game_time: string | null;
   location: string | null;
@@ -48,6 +50,7 @@ export interface LeagueSettings {
   season_year: number;
   timezone: string;
   active_season_name: string;
+  active_competition_phase: CompetitionPhase;
   created_at: string;
   updated_at: string;
 }

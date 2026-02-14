@@ -3,18 +3,54 @@ import {
   deleteGameAction,
 } from "@/app/admin/(protected)/actions";
 import { GameResultEditor } from "@/components/game-result-editor";
+import { ScheduleBuilderForm } from "@/components/schedule-builder-form";
 import { SeasonManagerForm } from "@/components/season-manager-form";
-import { loadActiveSeasonName, loadGamesView, loadTeams } from "@/lib/league-data";
+import {
+  countGamesForSeason,
+  formatCompetitionPhaseLabel,
+  loadActiveCompetitionPhase,
+  loadActiveSeasonName,
+  loadGamesView,
+  loadTeams,
+} from "@/lib/league-data";
 import { formatLeagueDateForDisplay, formatLeagueTimeForDisplay } from "@/lib/utils";
 
 export const dynamic = "force-dynamic";
 
-export default async function AdminSchedulePage() {
-  const [activeSeasonName, games, teams] = await Promise.all([
+export default async function AdminSchedulePage({
+  searchParams,
+}: {
+  searchParams: Promise<{ game_phase?: string }>;
+}) {
+  const params = await searchParams;
+  const initialGamePhase =
+    params.game_phase === "playoffs" ? "playoffs" : params.game_phase === "regular_season" ? "regular_season" : undefined;
+
+  const [activeSeasonName, activeCompetitionPhase, teams] = await Promise.all([
     loadActiveSeasonName(),
-    loadGamesView(),
+    loadActiveCompetitionPhase(),
     loadTeams(),
   ]);
+  const [regularSeasonGames, playoffGames] = await Promise.all([
+    loadGamesView(activeSeasonName, "regular_season"),
+    loadGamesView(activeSeasonName, "playoffs"),
+  ]);
+  const games = [...regularSeasonGames, ...playoffGames].sort((a, b) => {
+    const dateCompare = a.game_date.localeCompare(b.game_date);
+    if (dateCompare !== 0) {
+      return dateCompare;
+    }
+
+    const timeA = a.game_time ?? "99:99:99";
+    const timeB = b.game_time ?? "99:99:99";
+    const timeCompare = timeA.localeCompare(timeB);
+    if (timeCompare !== 0) {
+      return timeCompare;
+    }
+
+    return a.game_number - b.game_number;
+  });
+  const currentSeasonGameCount = await countGamesForSeason(activeSeasonName);
 
   return (
     <>
@@ -29,70 +65,32 @@ export default async function AdminSchedulePage() {
         <article className="card stack">
           <h3 style={{ margin: 0 }}>Active Season</h3>
           <p className="footer-note" style={{ marginTop: 0 }}>
-            New games are added to this season, and standings are calculated from this season only.
+            New games are added to this season/phase scope, and standings are calculated from this
+            scope only.
           </p>
           <SeasonManagerForm
             activeSeasonName={activeSeasonName}
-            currentSeasonGameCount={games.length}
+            currentSeasonGameCount={currentSeasonGameCount}
           />
         </article>
 
-        <form action={createGameAction} className="form-grid">
-          <label>
-            Date
-            <input name="game_date" type="date" required />
-          </label>
+        <p className="footer-note" style={{ marginTop: 0 }}>
+          Current scope: {activeSeasonName} ({formatCompetitionPhaseLabel(activeCompetitionPhase)})
+        </p>
 
-          <label>
-            Time
-            <input name="game_time" type="time" />
-          </label>
-
-          <label>
-            Location
-            <input name="location" placeholder="570 Church Field" />
-          </label>
-
-          <label>
-            Game slot
-            <select name="game_number" defaultValue="1" required>
-              <option value="1">Game 1</option>
-              <option value="2">Game 2</option>
-            </select>
-          </label>
-
-          <label>
-            Home team
-            <select name="home_team_id" required defaultValue="">
-              <option value="" disabled>
-                Select
-              </option>
-              {teams.map((team) => (
-                <option key={team.id} value={team.id}>
-                  {team.name}
-                </option>
-              ))}
-            </select>
-          </label>
-
-          <label>
-            Away team
-            <select name="away_team_id" required defaultValue="">
-              <option value="" disabled>
-                Select
-              </option>
-              {teams.map((team) => (
-                <option key={team.id} value={team.id}>
-                  {team.name}
-                </option>
-              ))}
-            </select>
-          </label>
-
-          <div style={{ alignSelf: "end" }}>
-            <button type="submit">Add Game Slot</button>
-          </div>
-        </form>
+        <ScheduleBuilderForm
+          teams={teams.map((team) => ({ id: team.id, name: team.name }))}
+          initialGamePhase={initialGamePhase}
+          defaultGamePhase={activeCompetitionPhase}
+          createGameAction={createGameAction}
+        />
+        <p className="footer-note" style={{ marginTop: 0 }}>
+          The game phase selected above applies immediately to the new game slot. You do not need
+          to save active season settings first.
+        </p>
+        <p className="footer-note" style={{ marginTop: 0 }}>
+          Game list below shows both phases for {activeSeasonName}: Regular Season and Playoffs.
+        </p>
       </section>
 
       <section className="page-surface">
@@ -115,7 +113,8 @@ export default async function AdminSchedulePage() {
                       {formatLeagueDateForDisplay(game.game_date)} G{game.game_number} - {game.home_team_name} vs {game.away_team_name}
                     </h4>
                     <p>
-                      {formatLeagueTimeForDisplay(game.game_time)} at {game.location ?? "TBD"}
+                      {formatLeagueTimeForDisplay(game.game_time)} at {game.location ?? "TBD"} (
+                      {formatCompetitionPhaseLabel(game.game_phase)})
                     </p>
                   </div>
                   <form action={deleteGameAction}>
