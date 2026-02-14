@@ -56,6 +56,21 @@ a {
   justify-content: space-between;
   gap: 1rem;
   align-items: end;
+  position: relative;
+}
+
+.site-title-wrap {
+  position: relative;
+}
+
+.league-logo-floating {
+  position: absolute;
+  right: calc(100% + 1rem);
+  top: 0.15rem;
+  width: clamp(82px, 10vw, 126px);
+  height: auto;
+  object-fit: contain;
+  filter: drop-shadow(0 3px 8px rgba(0, 0, 0, 0.28));
 }
 
 .league-kicker {
@@ -459,5 +474,19 @@ button:hover,
 
   .header-nav-list {
     justify-content: flex-start;
+  }
+
+  .site-title-wrap {
+    display: grid;
+    grid-template-columns: auto 1fr;
+    align-items: start;
+    column-gap: 0.6rem;
+    row-gap: 0.15rem;
+  }
+
+  .league-logo-floating {
+    position: static;
+    grid-row: 1 / span 2;
+    width: clamp(64px, 18vw, 92px);
   }
 }

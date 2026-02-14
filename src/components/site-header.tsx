@@ -1,4 +1,5 @@
 import Link from "next/link";
+import Image from "next/image";
 
 const publicLinks = [
   { href: "/", label: "Home" },
@@ -12,7 +13,15 @@ export function SiteHeader() {
   return (
     <header className="site-header">
       <div className="content-width site-header-inner">
-        <div>
+        <div className="site-title-wrap">
+          <Image
+            src="/all-glory-to-god.png"
+            alt="570 Church Softball League logo"
+            width={98}
+            height={98}
+            className="league-logo-floating"
+            priority
+          />
           <h1 className="league-title">570 Church Softball League</h1>
           <p className="league-kicker">Faith. Fellowship. Competition.</p>
         </div>
