@@ -1,26 +1,37 @@
 import { SiteHeader } from "@/components/site-header";
+import { SeasonPicker } from "@/components/season-picker";
 import { StandingsTable } from "@/components/standings-table";
 import { loadStandings } from "@/lib/standings";
 import {
-  countGamesForScope,
   formatCompetitionPhaseLabel,
   loadActiveCompetitionPhase,
   loadActiveSeasonName,
+  loadSeasonHistoryOptions,
+  resolveSeasonSelection,
 } from "@/lib/league-data";
 
 export const dynamic = "force-dynamic";
 
-export default async function StandingsPage() {
-  const [activeSeasonName, activeCompetitionPhase] = await Promise.all([
+type StandingsPageProps = {
+  searchParams: Promise<{ season?: string }>;
+};
+
+export default async function StandingsPage({ searchParams }: StandingsPageProps) {
+  const params = await searchParams;
+  const [activeSeasonName, activeCompetitionPhase, seasonOptions] = await Promise.all([
     loadActiveSeasonName(),
     loadActiveCompetitionPhase(),
+    loadSeasonHistoryOptions(6),
   ]);
-  const [regularSeasonStandings, playoffStandings, playoffGameCount] = await Promise.all([
-    loadStandings(activeSeasonName, "regular_season"),
-    loadStandings(activeSeasonName, "playoffs"),
-    countGamesForScope(activeSeasonName, "playoffs"),
+  const selectedSeasonName = resolveSeasonSelection(params.season, seasonOptions, activeSeasonName);
+  const selectedSeasonLabel =
+    seasonOptions.find((season) => season.seasonName === selectedSeasonName)?.label ??
+    selectedSeasonName;
+  const isViewingActiveSeason = selectedSeasonName === activeSeasonName;
+  const [regularSeasonStandings, playoffStandings] = await Promise.all([
+    loadStandings(selectedSeasonName, "regular_season"),
+    loadStandings(selectedSeasonName, "playoffs"),
   ]);
-  const showPlayoffStandings = playoffGameCount > 0 || activeCompetitionPhase === "playoffs";
 
   return (
     <>
@@ -35,29 +46,30 @@ export default async function StandingsPage() {
                 regular season.
               </p>
             </div>
-            <span className="token" style={{ whiteSpace: "nowrap" }}>
-              {activeCompetitionPhase === "regular_season" ? "Active: " : ""}
-              {activeSeasonName} (Regular Season)
-            </span>
+            <div style={{ display: "grid", justifyItems: "end", gap: "0.35rem" }}>
+              <SeasonPicker options={seasonOptions} selectedSeasonName={selectedSeasonName} />
+              <span className="token" style={{ whiteSpace: "nowrap" }}>
+                {isViewingActiveSeason && activeCompetitionPhase === "regular_season" ? "Active: " : ""}
+                {selectedSeasonLabel} (Regular Season)
+              </span>
+            </div>
           </div>
           <StandingsTable rows={regularSeasonStandings} />
         </section>
 
-        {showPlayoffStandings ? (
-          <section className="page-surface">
-            <div className="page-header">
-              <div>
-                <h2>Standings</h2>
-                <p>Playoff standings for this same season.</p>
-              </div>
-              <span className="token" style={{ whiteSpace: "nowrap" }}>
-                {activeCompetitionPhase === "playoffs" ? "Active: " : ""}
-                {activeSeasonName} ({formatCompetitionPhaseLabel("playoffs")})
-              </span>
+        <section className="page-surface">
+          <div className="page-header">
+            <div>
+              <h2>Standings</h2>
+              <p>Playoff standings for this same season.</p>
             </div>
-            <StandingsTable rows={playoffStandings} />
-          </section>
-        ) : null}
+            <span className="token" style={{ whiteSpace: "nowrap" }}>
+              {isViewingActiveSeason && activeCompetitionPhase === "playoffs" ? "Active: " : ""}
+              {selectedSeasonLabel} ({formatCompetitionPhaseLabel("playoffs")})
+            </span>
+          </div>
+          <StandingsTable rows={playoffStandings} />
+        </section>
       </main>
     </>
   );

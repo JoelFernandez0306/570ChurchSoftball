@@ -535,6 +535,16 @@ button:hover,
   color: #4f6778;
 }
 
+.season-picker {
+  display: grid;
+  gap: 0.24rem;
+  min-width: 14rem;
+}
+
+.season-picker select {
+  min-width: 14rem;
+}
+
 @media (max-width: 940px) {
   .hero-grid,
   .card-grid,

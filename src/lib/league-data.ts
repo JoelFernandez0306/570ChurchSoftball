@@ -1,6 +1,14 @@
 import { getServiceSupabaseClient } from "@/lib/supabase/service";
 import { formatInTimeZone } from "date-fns-tz";
-import type { CompetitionPhase, Game, LeagueSettings, Player, Team, TeamAlias } from "@/lib/types";
+import type {
+  CompetitionPhase,
+  Game,
+  LeagueSettings,
+  Player,
+  SeasonHistoryOption,
+  Team,
+  TeamAlias,
+} from "@/lib/types";
 
 export interface GameView extends Game {
   home_team_name: string;
@@ -23,6 +31,34 @@ export const DEFAULT_COMPETITION_PHASE: CompetitionPhase = "regular_season";
 
 function normalizeCompetitionPhase(value: string | null | undefined): CompetitionPhase {
   return value === "playoffs" ? "playoffs" : DEFAULT_COMPETITION_PHASE;
+}
+
+function seasonNameIncludesYear(seasonName: string): boolean {
+  return /\b(19|20)\d{2}\b/.test(seasonName);
+}
+
+function formatSeasonLabelWithYear(seasonName: string, seasonYear: number): string {
+  return seasonNameIncludesYear(seasonName)
+    ? seasonName
+    : `${seasonName} (${seasonYear})`;
+}
+
+function extractYearFromDateLike(value: string | null | undefined): number | null {
+  if (!value) {
+    return null;
+  }
+
+  const match = value.match(/(19|20)\d{2}/);
+  if (!match) {
+    return null;
+  }
+
+  const parsed = Number(match[0]);
+  if (!Number.isFinite(parsed)) {
+    return null;
+  }
+
+  return parsed;
 }
 
 export function formatCompetitionPhaseLabel(phase: CompetitionPhase): string {
@@ -100,6 +136,118 @@ export async function loadActiveLeagueScope(): Promise<{
     seasonName: settings.active_season_name?.trim() || fallbackSeasonName(settings.timezone),
     competitionPhase: normalizeCompetitionPhase(settings.active_competition_phase),
   };
+}
+
+export function resolveSeasonSelection(
+  requestedSeasonName: string | undefined,
+  availableSeasons: SeasonHistoryOption[],
+  activeSeasonName: string,
+): string {
+  const requested = requestedSeasonName?.trim();
+  if (requested && availableSeasons.some((season) => season.seasonName === requested)) {
+    return requested;
+  }
+
+  if (availableSeasons.some((season) => season.seasonName === activeSeasonName)) {
+    return activeSeasonName;
+  }
+
+  return availableSeasons[0]?.seasonName ?? activeSeasonName;
+}
+
+export async function loadSeasonHistoryOptions(limit = 6): Promise<SeasonHistoryOption[]> {
+  const supabase = getServiceSupabaseClient();
+  const settings = await loadLeagueSettings();
+  const activeSeasonName = settings.active_season_name?.trim() || fallbackSeasonName(settings.timezone);
+  const activeSeasonYear =
+    settings.season_year ||
+    extractYearFromDateLike(settings.updated_at) ||
+    Number(formatInTimeZone(new Date(), settings.timezone, "yyyy"));
+
+  const { data, error } = await supabase
+    .schema("league")
+    .from("games")
+    .select("season_name,game_date,created_at")
+    .order("created_at", { ascending: false })
+    .order("game_date", { ascending: false });
+
+  if (error) {
+    throw new Error(`Failed to load season history: ${error.message}`);
+  }
+
+  const bySeason = new Map<
+    string,
+    { seasonName: string; seasonYear: number; latestCreatedAt: number; isActive: boolean }
+  >();
+
+  for (const row of data ?? []) {
+    const seasonName = row.season_name?.trim();
+    if (!seasonName) {
+      continue;
+    }
+
+    const createdAtMs = row.created_at ? Date.parse(row.created_at) : 0;
+    const fallbackMs = row.game_date ? Date.parse(`${row.game_date}T00:00:00Z`) : 0;
+    const latestCreatedAt = Number.isFinite(createdAtMs) && createdAtMs > 0 ? createdAtMs : fallbackMs;
+    const seasonYear =
+      extractYearFromDateLike(row.created_at) ??
+      extractYearFromDateLike(row.game_date) ??
+      activeSeasonYear;
+
+    const existing = bySeason.get(seasonName);
+    if (!existing) {
+      bySeason.set(seasonName, {
+        seasonName,
+        seasonYear,
+        latestCreatedAt,
+        isActive: seasonName === activeSeasonName,
+      });
+      continue;
+    }
+
+    existing.seasonYear = Math.min(existing.seasonYear, seasonYear);
+    existing.latestCreatedAt = Math.max(existing.latestCreatedAt, latestCreatedAt);
+    if (seasonName === activeSeasonName) {
+      existing.isActive = true;
+    }
+  }
+
+  if (!bySeason.has(activeSeasonName)) {
+    bySeason.set(activeSeasonName, {
+      seasonName: activeSeasonName,
+      seasonYear: activeSeasonYear,
+      latestCreatedAt: Date.parse(settings.updated_at) || Date.now(),
+      isActive: true,
+    });
+  }
+
+  const sorted = Array.from(bySeason.values()).sort((a, b) => {
+    if (b.seasonYear !== a.seasonYear) {
+      return b.seasonYear - a.seasonYear;
+    }
+
+    if (b.latestCreatedAt !== a.latestCreatedAt) {
+      return b.latestCreatedAt - a.latestCreatedAt;
+    }
+
+    return a.seasonName.localeCompare(b.seasonName);
+  });
+
+  const normalizedLimit = Math.max(1, limit);
+  let limited = sorted.slice(0, normalizedLimit);
+  if (!limited.some((season) => season.seasonName === activeSeasonName)) {
+    const activeOption = sorted.find((season) => season.seasonName === activeSeasonName);
+    if (activeOption) {
+      limited = [...limited.slice(0, Math.max(0, normalizedLimit - 1)), activeOption];
+    }
+  }
+
+  return limited.map((season) => ({
+    seasonName: season.seasonName,
+    seasonYear: season.seasonYear,
+    label: formatSeasonLabelWithYear(season.seasonName, season.seasonYear),
+    isActive: season.isActive,
+  }));
 }
 
 export async function loadTeams(): Promise<Team[]> {

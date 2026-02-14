@@ -75,6 +75,13 @@ export interface StandingsRow {
   overrideApplied: boolean;
 }
 
+export interface SeasonHistoryOption {
+  seasonName: string;
+  seasonYear: number;
+  label: string;
+  isActive: boolean;
+}
+
 export interface SmsParseResult {
   date: string;
   slot: GameSlot;
