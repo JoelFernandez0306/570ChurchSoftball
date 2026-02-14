@@ -17,7 +17,23 @@ import {
 
 export const dynamic = "force-dynamic";
 
-export default async function AdminDashboardPage() {
+type DashboardSearchParams = {
+  invite_error?: string;
+  invite_success?: string;
+};
+
+type AdminDashboardPageProps = {
+  searchParams?: Promise<DashboardSearchParams>;
+};
+
+export default async function AdminDashboardPage({ searchParams }: AdminDashboardPageProps) {
+  const resolvedSearchParams = searchParams ? await searchParams : undefined;
+  const inviteError =
+    typeof resolvedSearchParams?.invite_error === "string"
+      ? resolvedSearchParams.invite_error
+      : "";
+  const inviteSuccess = resolvedSearchParams?.invite_success === "1";
+
   const [teams, games, standings, smsNumbers, admins, activeSeasonName, activeCompetitionPhase] =
     await Promise.all([
     loadTeamsWithRoster(),
@@ -129,6 +145,12 @@ export default async function AdminDashboardPage() {
         <p className="footer-note">
           If the email is new, the system sends an invite email automatically.
         </p>
+        {inviteSuccess ? (
+          <p className="success-text">Admin invite sent successfully.</p>
+        ) : null}
+        {inviteError ? (
+          <p className="error-text">{inviteError}</p>
+        ) : null}
 
         <div className="stack">
           {admins.map((admin) => (

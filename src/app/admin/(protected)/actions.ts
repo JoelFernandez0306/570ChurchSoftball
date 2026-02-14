@@ -46,6 +46,10 @@ function buildInviteRedirectUrl(baseUrl: string, invitedEmail: string): string {
   }
 }
 
+function redirectToAdminDashboardWithInviteError(message: string): never {
+  redirect(`/admin/dashboard?invite_error=${encodeURIComponent(message)}`);
+}
+
 export async function createTeamAction(formData: FormData) {
   const user = await requireAdminPageAccess();
   const supabase = getServiceSupabaseClient();
@@ -460,7 +464,7 @@ export async function addAdminByEmailAction(formData: FormData) {
   const fullName = String(formData.get("full_name") ?? "").trim();
 
   if (!email) {
-    throw new Error("Email is required");
+    redirectToAdminDashboardWithInviteError("Email is required.");
   }
 
   let page = 1;
@@ -471,7 +475,7 @@ export async function addAdminByEmailAction(formData: FormData) {
   while (!matchedUser && page < 20) {
     const { data, error } = await supabase.auth.admin.listUsers({ page, perPage: 200 });
     if (error) {
-      throw new Error(`Failed to search auth users: ${error.message}`);
+      redirectToAdminDashboardWithInviteError(`Failed to search auth users: ${error.message}`);
     }
 
     const users = data.users ?? [];
@@ -507,11 +511,13 @@ export async function addAdminByEmailAction(formData: FormData) {
     );
 
     if (inviteError) {
-      throw new Error(`Failed to invite admin: ${inviteError.message}`);
+      redirectToAdminDashboardWithInviteError(`Failed to invite admin: ${inviteError.message}`);
     }
 
     if (!inviteData.user) {
-      throw new Error("Admin invite was sent but no user record was returned. Please try again.");
+      redirectToAdminDashboardWithInviteError(
+        "Admin invite was sent but no user record was returned. Please try again.",
+      );
     }
 
     matchedUser = {
@@ -538,10 +544,11 @@ export async function addAdminByEmailAction(formData: FormData) {
   );
 
   if (error) {
-    throw new Error(`Failed to add admin: ${error.message}`);
+    redirectToAdminDashboardWithInviteError(`Failed to add admin: ${error.message}`);
   }
 
   revalidatePath("/admin/dashboard");
+  redirect("/admin/dashboard?invite_success=1");
 }
 
 export async function removeAdminAction(formData: FormData) {
