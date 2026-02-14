@@ -39,3 +39,9 @@ yarn-error.log*
 # typescript
 *.tsbuildinfo
 next-env.d.ts
+
+# keep sample env file in git
+!.env.example
+
+# local IDE/MCP config (can contain tokens)
+.cursor/

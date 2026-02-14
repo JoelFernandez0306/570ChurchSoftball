@@ -1,36 +1,94 @@
-This is a [Next.js](https://nextjs.org) project bootstrapped with [`create-next-app`](https://nextjs.org/docs/app/api-reference/cli/create-next-app).
+# 570 Church Softball League
 
-## Getting Started
+Production-ready Next.js + Supabase + Twilio app for a church softball league.
 
-First, run the development server:
+## Features
+- Public pages: Home, Schedule, Standings, Teams/Rosters, Rules.
+- Admin pages: team/alias management, roster management, schedule builder, quick game score entry, rules editor, SMS allow-list, standings/tie overrides.
+- Admin auth with multi-admin support.
+- Admin invite by email from dashboard.
+- Admin password change from dashboard.
+- Result support for:
+  - Win/Loss
+  - Tie game
+- Auto standings recalculation by win percentage, then head-to-head, then admin tie override.
+- SMS reporting via Twilio from approved phone numbers only.
+
+## Tech Stack
+- Next.js App Router + TypeScript
+- Supabase (Auth + Postgres + RLS)
+- Twilio Messaging webhook
+- Vercel deployment target
+
+## Environment Variables
+Copy `.env.example` to `.env` for local development:
 
 ```bash
-npm run dev
-# or
-yarn dev
-# or
-pnpm dev
-# or
-bun dev
+NEXT_PUBLIC_SUPABASE_URL=
+NEXT_PUBLIC_SUPABASE_ANON_KEY=
+SUPABASE_SERVICE_ROLE_KEY=
+NEXT_PUBLIC_SITE_URL=http://localhost:3000
+ADMIN_INVITE_REDIRECT_URL=
+TWILIO_AUTH_TOKEN=
+TWILIO_WEBHOOK_URL=
+TWILIO_PHONE_NUMBER=
 ```
 
-Open [http://localhost:3000](http://localhost:3000) with your browser to see the result.
+Notes:
+- `SUPABASE_SERVICE_ROLE_KEY` and `TWILIO_AUTH_TOKEN` are secrets. Never commit them.
+- `TWILIO_WEBHOOK_URL` should be your deployed endpoint, e.g. `https://<domain>/api/twilio/inbound`.
+- `ADMIN_INVITE_REDIRECT_URL` is optional. If empty, app uses `NEXT_PUBLIC_SITE_URL/admin/login`.
 
-You can start editing the page by modifying `app/page.tsx`. The page auto-updates as you edit the file.
+## Database Migrations
+Migrations live in `supabase/migrations`:
+- `20260213180000_league_schema.sql`
+- `20260214131500_add_player_role.sql`
+- `20260214153500_add_tie_game_support.sql`
 
-This project uses [`next/font`](https://nextjs.org/docs/app/building-your-application/optimizing/fonts) to automatically optimize and load [Geist](https://vercel.com/font), a new font family for Vercel.
+The schema uses `league` and includes tables for admins, teams, aliases, players, rules, games, allowed SMS numbers, tie overrides, and audit logs.
 
-## Learn More
+## Admin Bootstrap
+Bootstrap is only needed once when there are no admin rows yet:
+1. Sign in at `/admin/login`.
+2. Click **Bootstrap First Admin**.
 
-To learn more about Next.js, take a look at the following resources:
+After that, use **Admin Dashboard -> Admin Access** to add or invite other admins.
 
-- [Next.js Documentation](https://nextjs.org/docs) - learn about Next.js features and API.
-- [Learn Next.js](https://nextjs.org/learn) - an interactive Next.js tutorial.
+## SMS Formats
+Supported win/loss formats:
+- `MM/DD G1 Saint Johns W Calvary Bible L`
+- `MM/DD/YYYY G2 St John W Cal Bible L`
 
-You can check out [the Next.js GitHub repository](https://github.com/vercel/next.js) - your feedback and contributions are welcome!
+Supported tie formats:
+- `MM/DD G1 Saint Johns T Calvary Bible T`
+- `MM/DD/YYYY G2 St John vs Cal Bible Tie game`
 
-## Deploy on Vercel
+Rules:
+- `MM/DD` uses current year in `America/New_York`.
+- `G1` or `G2` is required.
+- Team aliases are resolved from `league.team_aliases`.
+- If alias resolution fails/ambiguous, no update is saved and Twilio replies with guidance.
 
-The easiest way to deploy your Next.js app is to use the [Vercel Platform](https://vercel.com/new?utm_medium=default-template&filter=next.js&utm_source=create-next-app&utm_campaign=create-next-app-readme) from the creators of Next.js.
+## Deploy (Vercel + Supabase + Twilio)
+1. Import repo into Vercel and deploy.
+2. Set all env vars in Vercel (same keys as above).
+3. In Supabase Auth URL settings:
+   - Set Site URL to your production domain.
+   - Add redirect URL for `/admin/login`.
+4. In Twilio phone number config:
+   - Set incoming SMS webhook to `POST https://<domain>/api/twilio/inbound`.
+5. In app admin:
+   - Add approved SMS sender numbers at `/admin/sms`.
 
-Check out our [Next.js deployment documentation](https://nextjs.org/docs/app/building-your-application/deploying) for more details.
+## Local Development
+```bash
+npm install
+npm run dev
+```
+
+## Quality Checks
+```bash
+npm run lint
+npm test
+npm run build
+```
