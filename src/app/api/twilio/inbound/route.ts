@@ -6,6 +6,7 @@ import { resolveTeamAlias } from "@/lib/team-resolver";
 import { validateTwilioSignature, twimlMessage } from "@/lib/twilio";
 import { cleanPhone } from "@/lib/utils";
 import { env } from "@/lib/env";
+import { loadActiveSeasonName } from "@/lib/league-data";
 
 function twimlResponse(message: string, status = 200) {
   return new NextResponse(twimlMessage(message), {
@@ -52,18 +53,21 @@ export async function POST(request: Request) {
     }
 
     const supabase = getServiceSupabaseClient();
+    const activeSeasonName = await loadActiveSeasonName();
 
-    const { data: numberRecord, error: numberError } = await supabase
+    const { data: allowedNumbers, error: numberError } = await supabase
       .schema("league")
       .from("allowed_sms_numbers")
       .select("id,phone_number")
-      .eq("phone_number", from)
-      .eq("active", true)
-      .maybeSingle();
+      .eq("active", true);
 
     if (numberError) {
       return twimlResponse(`Error checking sender: ${numberError.message}`, 500);
     }
+
+    const numberRecord = (allowedNumbers ?? []).find(
+      (record) => cleanPhone(record.phone_number) === from,
+    );
 
     if (!numberRecord) {
       return twimlResponse("This phone number is not allowed to report game results.", 403);
@@ -123,6 +127,7 @@ export async function POST(request: Request) {
       .schema("league")
       .from("games")
       .select("id")
+      .eq("season_name", activeSeasonName)
       .eq("game_date", parsed.date)
       .eq("game_number", parsed.slot)
       .or(
@@ -137,7 +142,7 @@ export async function POST(request: Request) {
 
     if (!game) {
       return twimlResponse(
-        `No scheduled game found for ${parsed.date} G${parsed.slot} between ${winner.teamName} and ${loser.teamName}.`,
+        `No scheduled game found in ${activeSeasonName} for ${parsed.date} G${parsed.slot} between ${winner.teamName} and ${loser.teamName}.`,
       );
     }
 

@@ -60,7 +60,25 @@ export function formatPct(value: number): string {
 }
 
 export function cleanPhone(phone: string): string {
-  return phone.replace(/[^+0-9]/g, "");
+  const raw = phone.trim();
+  if (!raw) {
+    return "";
+  }
+
+  const digits = raw.replace(/\D/g, "");
+  if (!digits) {
+    return "";
+  }
+
+  if (digits.length === 10) {
+    return `+1${digits}`;
+  }
+
+  if (digits.length === 11 && digits.startsWith("1")) {
+    return `+${digits}`;
+  }
+
+  return `+${digits}`;
 }
 
 export function safeInt(value: string | number | null | undefined, fallback = 0): number {

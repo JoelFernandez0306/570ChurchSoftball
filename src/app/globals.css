@@ -437,11 +437,52 @@ button:hover,
   color: #7d281d;
 }
 
+.result-pill.season {
+  background: #dce8f5;
+  color: #24455e;
+}
+
 .result-stack {
   display: inline-flex;
   align-items: center;
-  flex-wrap: nowrap;
+  flex-wrap: wrap;
   gap: 0.35rem;
+}
+
+.result-cell-stack {
+  display: inline-flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.45rem;
+}
+
+.result-inline-form {
+  display: inline-flex;
+  flex-wrap: wrap;
+  gap: 0.35rem;
+  align-items: center;
+}
+
+.result-inline-form select {
+  min-width: 9.5rem;
+  padding: 0.34rem 0.45rem;
+}
+
+.result-inline-form button {
+  padding: 0.34rem 0.55rem;
+  font-size: 0.78rem;
+}
+
+.result-inline-check {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.3rem;
+  font-size: 0.8rem;
+}
+
+.result-inline-check input[type="checkbox"] {
+  width: 0.9rem;
+  height: 0.9rem;
 }
 
 .footer-note {

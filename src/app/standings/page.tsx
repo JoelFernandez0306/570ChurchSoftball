@@ -1,11 +1,12 @@
 import { SiteHeader } from "@/components/site-header";
 import { StandingsTable } from "@/components/standings-table";
 import { loadStandings } from "@/lib/standings";
+import { loadActiveSeasonName } from "@/lib/league-data";
 
 export const dynamic = "force-dynamic";
 
 export default async function StandingsPage() {
-  const standings = await loadStandings();
+  const [standings, activeSeasonName] = await Promise.all([loadStandings(), loadActiveSeasonName()]);
 
   return (
     <>
@@ -15,7 +16,10 @@ export default async function StandingsPage() {
           <div className="page-header">
             <div>
               <h2>Standings</h2>
-              <p>Ranked by winning percentage, then head-to-head, then admin tie override.</p>
+              <p>
+                Ranked by winning percentage, then head-to-head, then admin tie override for{" "}
+                {activeSeasonName}.
+              </p>
             </div>
           </div>
           <StandingsTable rows={standings} />

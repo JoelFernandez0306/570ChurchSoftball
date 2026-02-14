@@ -3,13 +3,18 @@ import {
   deleteGameAction,
 } from "@/app/admin/(protected)/actions";
 import { GameResultEditor } from "@/components/game-result-editor";
-import { loadGamesView, loadTeams } from "@/lib/league-data";
+import { SeasonManagerForm } from "@/components/season-manager-form";
+import { loadActiveSeasonName, loadGamesView, loadTeams } from "@/lib/league-data";
 import { formatLeagueDateForDisplay, formatLeagueTimeForDisplay } from "@/lib/utils";
 
 export const dynamic = "force-dynamic";
 
 export default async function AdminSchedulePage() {
-  const [games, teams] = await Promise.all([loadGamesView(), loadTeams()]);
+  const [activeSeasonName, games, teams] = await Promise.all([
+    loadActiveSeasonName(),
+    loadGamesView(),
+    loadTeams(),
+  ]);
 
   return (
     <>
@@ -20,6 +25,17 @@ export default async function AdminSchedulePage() {
             <p>Create and manage game slots (doubleheaders supported).</p>
           </div>
         </div>
+
+        <article className="card stack">
+          <h3 style={{ margin: 0 }}>Active Season</h3>
+          <p className="footer-note" style={{ marginTop: 0 }}>
+            New games are added to this season, and standings are calculated from this season only.
+          </p>
+          <SeasonManagerForm
+            activeSeasonName={activeSeasonName}
+            currentSeasonGameCount={games.length}
+          />
+        </article>
 
         <form action={createGameAction} className="form-grid">
           <label>

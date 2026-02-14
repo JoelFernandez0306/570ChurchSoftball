@@ -172,7 +172,29 @@ export async function createGameAction(formData: FormData) {
     throw new Error("Date, home team, and away team are required");
   }
 
+  if (homeTeamId === awayTeamId) {
+    throw new Error("Home team and away team must be different.");
+  }
+
+  const { data: settings, error: settingsError } = await supabase
+    .schema("league")
+    .from("settings")
+    .select("active_season_name")
+    .order("updated_at", { ascending: false })
+    .limit(1)
+    .maybeSingle();
+
+  if (settingsError) {
+    throw new Error(`Failed to load active season: ${settingsError.message}`);
+  }
+
+  const activeSeasonName = settings?.active_season_name?.trim();
+  if (!activeSeasonName) {
+    throw new Error("Active season is not configured.");
+  }
+
   const { error } = await supabase.schema("league").from("games").insert({
+    season_name: activeSeasonName,
     game_date: gameDate,
     game_time: gameTime || null,
     location: location || null,
@@ -188,6 +210,8 @@ export async function createGameAction(formData: FormData) {
 
   revalidatePath("/admin/schedule");
   revalidatePath("/schedule");
+  revalidatePath("/admin/standings");
+  revalidatePath("/standings");
   revalidatePath("/");
 }
 
@@ -346,6 +370,39 @@ export async function removeAllowedSmsNumberAction(formData: FormData) {
 
   if (error) {
     throw new Error(`Failed to remove phone number: ${error.message}`);
+  }
+
+  revalidatePath("/admin/sms");
+}
+
+export async function updateAllowedSmsNumberAction(formData: FormData) {
+  await requireAdminPageAccess();
+  const supabase = getServiceSupabaseClient();
+
+  const id = String(formData.get("id") ?? "").trim();
+  const phoneNumber = cleanPhone(String(formData.get("phone_number") ?? "").trim());
+  const label = String(formData.get("label") ?? "").trim();
+
+  if (!id) {
+    throw new Error("Record ID is required");
+  }
+
+  if (!phoneNumber) {
+    throw new Error("Phone number is required");
+  }
+
+  const { error } = await supabase
+    .schema("league")
+    .from("allowed_sms_numbers")
+    .update({
+      phone_number: phoneNumber,
+      label: label || null,
+      active: true,
+    })
+    .eq("id", id);
+
+  if (error) {
+    throw new Error(`Failed to update phone number: ${error.message}`);
   }
 
   revalidatePath("/admin/sms");

@@ -1,5 +1,6 @@
 import { getServiceSupabaseClient } from "@/lib/supabase/service";
-import type { Game, Player, Team, TeamAlias } from "@/lib/types";
+import { formatInTimeZone } from "date-fns-tz";
+import type { Game, LeagueSettings, Player, Team, TeamAlias } from "@/lib/types";
 
 export interface GameView extends Game {
   home_team_name: string;
@@ -11,6 +12,38 @@ export interface GameView extends Game {
 export interface TeamWithRoster extends Team {
   players: Player[];
   aliases: TeamAlias[];
+}
+
+function fallbackSeasonName(timezone = "America/New_York"): string {
+  const currentYear = formatInTimeZone(new Date(), timezone, "yyyy");
+  return `Season ${currentYear}`;
+}
+
+export async function loadLeagueSettings(): Promise<LeagueSettings> {
+  const supabase = getServiceSupabaseClient();
+  const { data, error } = await supabase
+    .schema("league")
+    .from("settings")
+    .select("id,league_name,season_year,timezone,active_season_name,created_at,updated_at")
+    .order("updated_at", { ascending: false })
+    .limit(1)
+    .maybeSingle();
+
+  if (error) {
+    throw new Error(`Failed to load settings: ${error.message}`);
+  }
+
+  if (!data) {
+    throw new Error("League settings not found.");
+  }
+
+  return data as LeagueSettings;
+}
+
+export async function loadActiveSeasonName(): Promise<string> {
+  const settings = await loadLeagueSettings();
+  const seasonName = settings.active_season_name?.trim();
+  return seasonName || fallbackSeasonName(settings.timezone);
 }
 
 export async function loadTeams(): Promise<Team[]> {
@@ -72,14 +105,16 @@ export async function loadTeamsWithRoster(): Promise<TeamWithRoster[]> {
   }));
 }
 
-export async function loadGames(): Promise<Game[]> {
+export async function loadGames(seasonName?: string): Promise<Game[]> {
   const supabase = getServiceSupabaseClient();
+  const activeSeasonName = seasonName ?? (await loadActiveSeasonName());
   const { data, error } = await supabase
     .schema("league")
     .from("games")
     .select(
-      "id,game_date,game_time,location,game_number,home_team_id,away_team_id,is_tie,winner_team_id,loser_team_id,result_source,created_at,updated_at",
+      "id,season_name,game_date,game_time,location,game_number,home_team_id,away_team_id,is_tie,winner_team_id,loser_team_id,result_source,created_at,updated_at",
     )
+    .eq("season_name", activeSeasonName)
     .order("game_date", { ascending: true })
     .order("game_number", { ascending: true })
     .order("game_time", { ascending: true });
@@ -91,8 +126,8 @@ export async function loadGames(): Promise<Game[]> {
   return (data ?? []) as Game[];
 }
 
-export async function loadGamesView(): Promise<GameView[]> {
-  const [games, teams] = await Promise.all([loadGames(), loadTeams()]);
+export async function loadGamesView(seasonName?: string): Promise<GameView[]> {
+  const [games, teams] = await Promise.all([loadGames(seasonName), loadTeams()]);
   const teamMap = new Map(teams.map((team) => [team.id, team.name]));
 
   return games.map((game) => ({
@@ -102,6 +137,21 @@ export async function loadGamesView(): Promise<GameView[]> {
     winner_team_name: game.winner_team_id ? (teamMap.get(game.winner_team_id) ?? null) : null,
     loser_team_name: game.loser_team_id ? (teamMap.get(game.loser_team_id) ?? null) : null,
   }));
+}
+
+export async function countGamesForSeason(seasonName: string): Promise<number> {
+  const supabase = getServiceSupabaseClient();
+  const { count, error } = await supabase
+    .schema("league")
+    .from("games")
+    .select("id", { count: "exact", head: true })
+    .eq("season_name", seasonName);
+
+  if (error) {
+    throw new Error(`Failed to count games for season: ${error.message}`);
+  }
+
+  return count ?? 0;
 }
 
 export async function loadRulesContent(): Promise<string> {

@@ -1,10 +1,10 @@
 import { QuickResultForm } from "@/components/quick-result-form";
-import { loadTeams } from "@/lib/league-data";
+import { loadActiveSeasonName, loadTeams } from "@/lib/league-data";
 
 export const dynamic = "force-dynamic";
 
 export default async function AdminQuickResultPage() {
-  const teams = await loadTeams();
+  const [teams, activeSeasonName] = await Promise.all([loadTeams(), loadActiveSeasonName()]);
 
   return (
     <section className="page-surface stack">
@@ -12,7 +12,8 @@ export default async function AdminQuickResultPage() {
         <div>
           <h2>Quick Game Score Entry</h2>
           <p>
-            Fast manual fallback when SMS was missed. Supports backdated updates and tie games.
+            Fast manual fallback when SMS was missed. Supports backdated updates and tie games for{" "}
+            {activeSeasonName}.
           </p>
         </div>
       </div>
@@ -20,8 +21,8 @@ export default async function AdminQuickResultPage() {
       <QuickResultForm teams={teams.map((team) => ({ id: team.id, name: team.name }))} />
 
       <p className="footer-note">
-        This updates the matching scheduled game only. If no game exists, create it first on the
-        Schedule page.
+        This updates the matching scheduled game in {activeSeasonName} only. If no game exists,
+        create it first on the Schedule page.
       </p>
     </section>
   );

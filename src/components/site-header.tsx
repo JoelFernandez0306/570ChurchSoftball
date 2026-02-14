@@ -1,5 +1,6 @@
 import Link from "next/link";
 import Image from "next/image";
+import { getAuthenticatedUser, isAdminUser } from "@/lib/auth";
 
 const publicLinks = [
   { href: "/", label: "Home" },
@@ -9,7 +10,24 @@ const publicLinks = [
   { href: "/rules", label: "Rules" },
 ];
 
-export function SiteHeader() {
+export async function SiteHeader() {
+  const user = await getAuthenticatedUser();
+  let adminHref = "/admin/login";
+  let adminLabel = "Admin Login";
+
+  if (user) {
+    try {
+      const admin = await isAdminUser(user.id);
+      if (admin) {
+        adminHref = "/admin/dashboard";
+        adminLabel = "Admin Dashboard";
+      }
+    } catch {
+      adminHref = "/admin/login";
+      adminLabel = "Admin Login";
+    }
+  }
+
   return (
     <header className="site-header">
       <div className="content-width site-header-inner">
@@ -34,8 +52,8 @@ export function SiteHeader() {
               </li>
             ))}
             <li>
-              <Link href="/admin/login" className="pill-link">
-                Admin
+              <Link href={adminHref} className="pill-link">
+                {adminLabel}
               </Link>
             </li>
           </ul>

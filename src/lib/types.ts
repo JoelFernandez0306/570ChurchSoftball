@@ -27,6 +27,7 @@ export interface Player {
 
 export interface Game {
   id: UUID;
+  season_name: string;
   game_date: string;
   game_time: string | null;
   location: string | null;
@@ -37,6 +38,16 @@ export interface Game {
   winner_team_id: UUID | null;
   loser_team_id: UUID | null;
   result_source: ResultSource | null;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface LeagueSettings {
+  id: UUID;
+  league_name: string;
+  season_year: number;
+  timezone: string;
+  active_season_name: string;
   created_at: string;
   updated_at: string;
 }

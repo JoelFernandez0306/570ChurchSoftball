@@ -3,6 +3,7 @@ import { z } from "zod";
 import { revalidatePath } from "next/cache";
 import { requireAdminApiAccess } from "@/lib/auth";
 import { getServiceSupabaseClient } from "@/lib/supabase/service";
+import { loadActiveSeasonName } from "@/lib/league-data";
 
 const resultSchema = z.object({
   gameId: z.string().uuid().optional(),
@@ -54,6 +55,7 @@ export async function POST(request: Request) {
     }
 
     const supabase = getServiceSupabaseClient();
+    const activeSeasonName = await loadActiveSeasonName();
     const updatePayload = payload.tieGame
       ? {
           winner_team_id: null,
@@ -88,6 +90,7 @@ export async function POST(request: Request) {
           .schema("league")
           .from("games")
           .select("id")
+          .eq("season_name", activeSeasonName)
           .eq("game_date", payload.gameDate!)
           .eq("game_number", payload.gameNumber!)
           .or(
@@ -104,7 +107,7 @@ export async function POST(request: Request) {
           return NextResponse.json(
             {
               error:
-                "No scheduled game found for this date/slot/team pair. Create the schedule first.",
+                `No scheduled game found for this date/slot/team pair in ${activeSeasonName}. Create the schedule first.`,
             },
             { status: 404 },
           );
@@ -116,6 +119,7 @@ export async function POST(request: Request) {
           .schema("league")
           .from("games")
           .select("id")
+          .eq("season_name", activeSeasonName)
           .eq("game_date", payload.gameDate!)
           .eq("game_number", payload.gameNumber!)
           .limit(2);
@@ -126,7 +130,9 @@ export async function POST(request: Request) {
 
         if (!games || games.length === 0) {
           return NextResponse.json(
-            { error: "No scheduled game found for this date and slot. Create the schedule first." },
+            {
+              error: `No scheduled game found for this date and slot in ${activeSeasonName}. Create the schedule first.`,
+            },
             { status: 404 },
           );
         }

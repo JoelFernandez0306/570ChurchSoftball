@@ -1,4 +1,5 @@
 import { getServiceSupabaseClient } from "@/lib/supabase/service";
+import { loadActiveSeasonName } from "@/lib/league-data";
 import type { StandingsRow, Team, TieOverride } from "@/lib/types";
 
 interface GameResultRow {
@@ -254,15 +255,17 @@ export function computeStandings(
   }));
 }
 
-export async function loadStandings(): Promise<StandingsRow[]> {
+export async function loadStandings(seasonName?: string): Promise<StandingsRow[]> {
   const supabase = getServiceSupabaseClient();
+  const activeSeasonName = seasonName ?? (await loadActiveSeasonName());
 
   const [teamsResult, gamesResult, overridesResult] = await Promise.all([
     supabase.schema("league").from("teams").select("id,name").order("name"),
     supabase
       .schema("league")
       .from("games")
-      .select("home_team_id,away_team_id,is_tie,winner_team_id,loser_team_id"),
+      .select("home_team_id,away_team_id,is_tie,winner_team_id,loser_team_id")
+      .eq("season_name", activeSeasonName),
     supabase
       .schema("league")
       .from("tie_overrides")

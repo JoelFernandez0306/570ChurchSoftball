@@ -1,6 +1,7 @@
 import {
   addAllowedSmsNumberAction,
   removeAllowedSmsNumberAction,
+  updateAllowedSmsNumberAction,
 } from "@/app/admin/(protected)/actions";
 import { loadAllowedSmsNumbers } from "@/lib/league-data";
 import { env } from "@/lib/env";
@@ -39,6 +40,11 @@ export default async function AdminSmsPage() {
             <button type="submit">Allow Number</button>
           </div>
         </form>
+
+        <p className="footer-note">
+          US numbers can be entered as 5705551234 or +15705551234. The system stores them as
+          +1...
+        </p>
       </section>
 
       <section className="page-surface stack">
@@ -60,13 +66,30 @@ export default async function AdminSmsPage() {
                     <h4 style={{ margin: 0 }}>{record.phone_number}</h4>
                     <p>{record.label || "No label"}</p>
                   </div>
-                  <form action={removeAllowedSmsNumberAction}>
-                    <input type="hidden" name="id" value={record.id} />
-                    <button type="submit" className="danger-button">
-                      Remove
+                  <div style={{ display: "inline-flex", gap: "0.5rem", alignItems: "center" }}>
+                    <button type="submit" form={`edit-sms-${record.id}`} className="ghost-button">
+                      Edit
                     </button>
-                  </form>
+                    <form action={removeAllowedSmsNumberAction}>
+                      <input type="hidden" name="id" value={record.id} />
+                      <button type="submit" className="danger-button">
+                        Remove
+                      </button>
+                    </form>
+                  </div>
                 </div>
+
+                <form id={`edit-sms-${record.id}`} action={updateAllowedSmsNumberAction} className="form-grid">
+                  <input type="hidden" name="id" value={record.id} />
+                  <label>
+                    Edit phone
+                    <input name="phone_number" defaultValue={record.phone_number} required />
+                  </label>
+                  <label>
+                    Edit label
+                    <input name="label" defaultValue={record.label ?? ""} />
+                  </label>
+                </form>
               </li>
             ))}
           </ul>
@@ -90,7 +113,7 @@ MM/DD/YYYY G2 St John vs Cal Bible Tie game
 Notes:
 - Year is optional. If omitted, current year in America/New_York is assumed.
 - If aliases are unclear, the system replies asking for exact team names.
-- Schedule must already contain the matching game slot.`}
+- Schedule must already contain the matching game slot in the active season.`}
           </pre>
         </article>
       </section>
