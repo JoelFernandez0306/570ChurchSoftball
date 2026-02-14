@@ -3,9 +3,48 @@
 import { FormEvent, useEffect, useMemo, useState } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
+import type { EmailOtpType } from "@supabase/supabase-js";
 import { getBrowserSupabaseClient } from "@/lib/supabase/browser";
 
 type InviteAccessState = "checking" | "allowed" | "blocked";
+const SUPABASE_AUTH_QUERY_PARAMS = ["code", "token_hash", "type", "access_token", "refresh_token"];
+
+function normalizeOtpType(value: string | null): EmailOtpType | null {
+  if (!value) {
+    return null;
+  }
+
+  const normalized = value.toLowerCase();
+  if (
+    normalized === "signup" ||
+    normalized === "recovery" ||
+    normalized === "invite" ||
+    normalized === "magiclink" ||
+    normalized === "email_change" ||
+    normalized === "email"
+  ) {
+    return normalized;
+  }
+
+  return null;
+}
+
+function removeAuthParamsFromCurrentUrl() {
+  const currentUrl = new URL(window.location.href);
+  for (const key of SUPABASE_AUTH_QUERY_PARAMS) {
+    currentUrl.searchParams.delete(key);
+  }
+
+  const hash = currentUrl.hash.replace(/^#/, "");
+  const hashParams = new URLSearchParams(hash);
+  for (const key of SUPABASE_AUTH_QUERY_PARAMS) {
+    hashParams.delete(key);
+  }
+  const nextHash = hashParams.toString();
+  currentUrl.hash = nextHash ? `#${nextHash}` : "";
+
+  window.history.replaceState({}, "", currentUrl.toString());
+}
 
 export function CreateAdminPasswordClient() {
   const router = useRouter();
@@ -30,8 +69,54 @@ export function CreateAdminPasswordClient() {
   useEffect(() => {
     const supabase = getBrowserSupabaseClient();
     let cancelled = false;
+    let tokenHandled = false;
+
+    const hydrateInviteSessionFromUrl = async () => {
+      if (tokenHandled) {
+        return;
+      }
+
+      tokenHandled = true;
+      const query = new URLSearchParams(window.location.search);
+      const hash = new URLSearchParams(window.location.hash.replace(/^#/, ""));
+      const inviteType = normalizeOtpType(query.get("type") ?? hash.get("type"));
+      const code = query.get("code");
+      const tokenHash = query.get("token_hash");
+      const accessToken = hash.get("access_token");
+      const refreshToken = hash.get("refresh_token");
+
+      if (code) {
+        const { error } = await supabase.auth.exchangeCodeForSession(code);
+        if (!error) {
+          removeAuthParamsFromCurrentUrl();
+        }
+        return;
+      }
+
+      if (tokenHash && inviteType) {
+        const { error } = await supabase.auth.verifyOtp({
+          type: inviteType,
+          token_hash: tokenHash,
+        });
+        if (!error) {
+          removeAuthParamsFromCurrentUrl();
+        }
+        return;
+      }
+
+      if (accessToken && refreshToken) {
+        const { error } = await supabase.auth.setSession({
+          access_token: accessToken,
+          refresh_token: refreshToken,
+        });
+        if (!error) {
+          removeAuthParamsFromCurrentUrl();
+        }
+      }
+    };
 
     const assessAccess = async (userOverride?: { email?: string | null } | null) => {
+      await hydrateInviteSessionFromUrl();
       const query = new URLSearchParams(window.location.search);
       const hash = new URLSearchParams(window.location.hash.replace(/^#/, ""));
       const invitedFromQuery = query.get("invited_email")?.trim().toLowerCase() ?? "";
