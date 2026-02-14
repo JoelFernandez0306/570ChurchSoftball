@@ -300,6 +300,50 @@ textarea {
   color: var(--ink);
 }
 
+.password-field {
+  position: relative;
+  display: block;
+}
+
+.password-field input {
+  width: 100%;
+  padding-right: 2.2rem;
+}
+
+.password-toggle {
+  position: absolute;
+  top: 50%;
+  right: 0.4rem;
+  transform: translateY(-50%);
+  border: 0;
+  border-radius: 6px;
+  background: transparent;
+  color: #335065;
+  padding: 0.2rem;
+  min-width: auto;
+  line-height: 0;
+}
+
+.password-toggle:hover {
+  background: #e4eef5;
+  color: #274257;
+}
+
+.password-toggle:focus-visible {
+  outline: 2px solid #0a3653;
+  outline-offset: 1px;
+}
+
+.password-toggle svg {
+  width: 1rem;
+  height: 1rem;
+  fill: none;
+  stroke: currentColor;
+  stroke-width: 2;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+}
+
 input[type="checkbox"] {
   width: 1rem;
   height: 1rem;

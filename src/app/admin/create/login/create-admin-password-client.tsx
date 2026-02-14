@@ -5,6 +5,7 @@ import Link from "next/link";
 import { useRouter } from "next/navigation";
 import type { EmailOtpType } from "@supabase/supabase-js";
 import { getBrowserSupabaseClient } from "@/lib/supabase/browser";
+import { PasswordInput } from "@/components/password-input";
 
 type InviteAccessState = "checking" | "allowed" | "blocked";
 const SUPABASE_AUTH_QUERY_PARAMS = ["code", "token_hash", "type", "access_token", "refresh_token"];
@@ -318,8 +319,7 @@ export function CreateAdminPasswordClient() {
 
             <label>
               New password
-              <input
-                type="password"
+              <PasswordInput
                 autoComplete="new-password"
                 value={password}
                 onChange={(event) => setPassword(event.target.value)}
@@ -329,8 +329,7 @@ export function CreateAdminPasswordClient() {
 
             <label>
               Confirm password
-              <input
-                type="password"
+              <PasswordInput
                 autoComplete="new-password"
                 value={confirmPassword}
                 onChange={(event) => setConfirmPassword(event.target.value)}

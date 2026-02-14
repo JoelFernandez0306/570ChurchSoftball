@@ -4,6 +4,7 @@ import { FormEvent, useState } from "react";
 import { useRouter } from "next/navigation";
 import Link from "next/link";
 import { getBrowserSupabaseClient } from "@/lib/supabase/browser";
+import { PasswordInput } from "@/components/password-input";
 
 interface AdminLoginClientProps {
   errorParam: string | null;
@@ -71,8 +72,7 @@ export function AdminLoginClient({ errorParam }: AdminLoginClientProps) {
 
           <label>
             Password
-            <input
-              type="password"
+            <PasswordInput
               name="password"
               autoComplete="current-password"
               value={password}

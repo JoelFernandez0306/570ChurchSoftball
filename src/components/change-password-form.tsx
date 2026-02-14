@@ -1,6 +1,7 @@
 "use client";
 
 import { FormEvent, useState } from "react";
+import { PasswordInput } from "@/components/password-input";
 
 export function ChangePasswordForm() {
   const [currentPassword, setCurrentPassword] = useState("");
@@ -61,8 +62,7 @@ export function ChangePasswordForm() {
       <div className="form-grid">
         <label>
           Current password
-          <input
-            type="password"
+          <PasswordInput
             autoComplete="current-password"
             value={currentPassword}
             onChange={(event) => setCurrentPassword(event.target.value)}
@@ -72,8 +72,7 @@ export function ChangePasswordForm() {
 
         <label>
           New password
-          <input
-            type="password"
+          <PasswordInput
             autoComplete="new-password"
             value={newPassword}
             onChange={(event) => setNewPassword(event.target.value)}
@@ -83,8 +82,7 @@ export function ChangePasswordForm() {
 
         <label>
           Confirm new password
-          <input
-            type="password"
+          <PasswordInput
             autoComplete="new-password"
             value={confirmPassword}
             onChange={(event) => setConfirmPassword(event.target.value)}
