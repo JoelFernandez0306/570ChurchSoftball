@@ -67,7 +67,7 @@ a {
   position: absolute;
   right: calc(100% + 1rem);
   top: 0.15rem;
-  width: clamp(82px, 10vw, 126px);
+  width: clamp(83px, 10vw, 127px);
   height: auto;
   object-fit: contain;
   filter: drop-shadow(0 3px 8px rgba(0, 0, 0, 0.28));
@@ -487,6 +487,6 @@ button:hover,
   .league-logo-floating {
     position: static;
     grid-row: 1 / span 2;
-    width: clamp(64px, 18vw, 92px);
+    width: clamp(65px, 18vw, 93px);
   }
 }
