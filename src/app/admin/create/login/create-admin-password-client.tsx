@@ -11,12 +11,16 @@ export function CreateAdminPasswordClient() {
   const router = useRouter();
   const [accessState, setAccessState] = useState<InviteAccessState>("checking");
   const [inviteContext, setInviteContext] = useState(false);
+  const [expectedInviteEmail, setExpectedInviteEmail] = useState("");
+  const [sessionEmail, setSessionEmail] = useState("");
+  const [mismatchMessage, setMismatchMessage] = useState<string | null>(null);
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [confirmPassword, setConfirmPassword] = useState("");
   const [statusMessage, setStatusMessage] = useState<string | null>(null);
   const [isError, setIsError] = useState(false);
   const [saving, setSaving] = useState(false);
+  const [signingOut, setSigningOut] = useState(false);
 
   const canSubmit = useMemo(
     () => accessState === "allowed" && !saving,
@@ -30,8 +34,13 @@ export function CreateAdminPasswordClient() {
     const assessAccess = async (userOverride?: { email?: string | null } | null) => {
       const query = new URLSearchParams(window.location.search);
       const hash = new URLSearchParams(window.location.hash.replace(/^#/, ""));
-      const hasInviteFlag = query.get("invite") === "1" || hash.get("type") === "invite";
+      const invitedFromQuery = query.get("invited_email")?.trim().toLowerCase() ?? "";
+      const invitedFromHash = hash.get("invited_email")?.trim().toLowerCase() ?? "";
+      const invitedEmail = invitedFromQuery || invitedFromHash;
+      const hasInviteFlag =
+        query.get("invite") === "1" || hash.get("type") === "invite" || invitedEmail.length > 0;
       setInviteContext(hasInviteFlag);
+      setExpectedInviteEmail(invitedEmail);
 
       const user =
         userOverride ??
@@ -41,18 +50,32 @@ export function CreateAdminPasswordClient() {
         return;
       }
 
+      const normalizedUserEmail = user?.email?.trim().toLowerCase() ?? "";
+      setSessionEmail(normalizedUserEmail);
+
       if (hasInviteFlag && user) {
+        if (invitedEmail && normalizedUserEmail !== invitedEmail) {
+          setAccessState("blocked");
+          setMismatchMessage(
+            `This invite is for ${invitedEmail}, but you are signed in as ${normalizedUserEmail || "another account"}.`,
+          );
+          return;
+        }
+
+        setMismatchMessage(null);
         setAccessState("allowed");
-        setEmail(user.email ?? "");
+        setEmail(invitedEmail || user.email || "");
         setStatusMessage(null);
         return;
       }
 
       if (hasInviteFlag) {
+        setMismatchMessage(null);
         setAccessState("checking");
         return;
       }
 
+      setMismatchMessage(null);
       setAccessState("blocked");
     };
 
@@ -119,6 +142,35 @@ export function CreateAdminPasswordClient() {
     }
   }
 
+  async function handleSignOut() {
+    setSigningOut(true);
+    setStatusMessage(null);
+    setIsError(false);
+
+    try {
+      const supabase = getBrowserSupabaseClient();
+      const { error } = await supabase.auth.signOut();
+
+      if (error) {
+        setStatusMessage(error.message);
+        setIsError(true);
+        return;
+      }
+
+      setStatusMessage("Signed out. Open your invite email and click the invite link again.");
+      setEmail("");
+      setPassword("");
+      setConfirmPassword("");
+      setAccessState("blocked");
+      setMismatchMessage(null);
+    } catch (error) {
+      setStatusMessage(error instanceof Error ? error.message : "Failed to sign out.");
+      setIsError(true);
+    } finally {
+      setSigningOut(false);
+    }
+  }
+
   return (
     <main className="main-shell content-width" style={{ paddingTop: "1.5rem" }}>
       <section className="page-surface" style={{ maxWidth: 620, marginInline: "auto" }}>
@@ -140,16 +192,32 @@ export function CreateAdminPasswordClient() {
             <p className="error-text">
               This page is invite-only. Open it from your admin invite email.
             </p>
-            {!inviteContext ? (
+            {mismatchMessage ? (
+              <>
+                <p className="error-text">{mismatchMessage}</p>
+                <p className="footer-note">
+                  Invited email: {expectedInviteEmail || "not provided"}
+                  <br />
+                  Current session: {sessionEmail || "none"}
+                </p>
+                <div>
+                  <button type="button" onClick={handleSignOut} disabled={signingOut}>
+                    {signingOut ? "Signing out..." : "Sign Out"}
+                  </button>
+                </div>
+              </>
+            ) : null}
+            {!mismatchMessage && !inviteContext ? (
               <p className="footer-note">
                 Invite link is missing or invalid. Request a new invite from an admin.
               </p>
-            ) : (
+            ) : null}
+            {!mismatchMessage && inviteContext ? (
               <p className="footer-note">
                 Invite session was not detected. The invite link may be expired; request a new
                 invite.
               </p>
-            )}
+            ) : null}
             <p className="footer-note">
               Go to <Link href="/admin/login">Admin Login</Link>.
             </p>

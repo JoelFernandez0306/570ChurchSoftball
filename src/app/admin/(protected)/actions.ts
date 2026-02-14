@@ -25,6 +25,27 @@ function parseCompetitionPhase(value: FormDataEntryValue | null): CompetitionPha
     : DEFAULT_COMPETITION_PHASE;
 }
 
+function buildInviteRedirectUrl(baseUrl: string, invitedEmail: string): string {
+  const normalizedEmail = invitedEmail.trim().toLowerCase();
+
+  try {
+    const parsed = new URL(baseUrl);
+    parsed.searchParams.set("invite", "1");
+    parsed.searchParams.set("invited_email", normalizedEmail);
+    return parsed.toString();
+  } catch {
+    const [withoutHash, hashPart] = baseUrl.split("#", 2);
+    const [pathPart, queryPart] = withoutHash.split("?", 2);
+    const searchParams = new URLSearchParams(queryPart ?? "");
+    searchParams.set("invite", "1");
+    searchParams.set("invited_email", normalizedEmail);
+
+    const query = searchParams.toString();
+    const hash = hashPart ? `#${hashPart}` : "";
+    return `${pathPart}${query ? `?${query}` : ""}${hash}`;
+  }
+}
+
 export async function createTeamAction(formData: FormData) {
   const user = await requireAdminPageAccess();
   const supabase = getServiceSupabaseClient();
@@ -468,9 +489,12 @@ export async function addAdminByEmailAction(formData: FormData) {
     const directRedirect = process.env.ADMIN_INVITE_REDIRECT_URL?.trim();
     const siteUrl = process.env.NEXT_PUBLIC_SITE_URL?.trim();
     const defaultInviteRedirect = siteUrl
-      ? `${siteUrl.replace(/\/$/, "")}/admin/create/login?invite=1`
+      ? `${siteUrl.replace(/\/$/, "")}/admin/create/login`
       : undefined;
-    const redirectTo = directRedirect || defaultInviteRedirect;
+    const baseRedirectTo = directRedirect || defaultInviteRedirect;
+    const redirectTo = baseRedirectTo
+      ? buildInviteRedirectUrl(baseRedirectTo, email)
+      : undefined;
 
     const { data: inviteData, error: inviteError } = await supabase.auth.admin.inviteUserByEmail(
       email,
