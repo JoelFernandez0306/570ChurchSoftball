@@ -11,7 +11,6 @@ import {
 } from "@/lib/league-data";
 import { loadStandings } from "@/lib/standings";
 import {
-  addAdminByEmailAction,
   removeAdminAction,
 } from "@/app/admin/(protected)/actions";
 
@@ -126,7 +125,7 @@ export default async function AdminDashboardPage({ searchParams }: AdminDashboar
           </div>
         </div>
 
-        <form action={addAdminByEmailAction} className="form-grid">
+        <form action="/api/admin/invite" method="post" className="form-grid">
           <label>
             Admin email
             <input name="email" type="email" placeholder="admin@example.com" required />
