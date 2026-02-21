@@ -3,6 +3,8 @@ import { SiteHeader } from "@/components/site-header";
 export const dynamic = "force-dynamic";
 
 export default function PrivacyPage() {
+  const emailLinkStyle = { color: "#0b4f82", textDecoration: "underline" } as const;
+
   return (
     <>
       <SiteHeader />
@@ -37,9 +39,19 @@ export default function PrivacyPage() {
               operate league services.
             </p>
             <p style={{ margin: 0 }}>
-              For privacy questions, contact league administrators Aaron at
-              aaronstaner17@gmail.com, Sarah at sarahgtanner18@gmail.com, or Joel at
-              joelcool65@gmail.com.
+              For privacy questions, contact league administrators Aaron at{" "}
+              <a href="mailto:aaronstaner17@gmail.com" style={emailLinkStyle}>
+                aaronstaner17@gmail.com
+              </a>
+              , Sarah at{" "}
+              <a href="mailto:sarahgtanner18@gmail.com" style={emailLinkStyle}>
+                sarahgtanner18@gmail.com
+              </a>
+              , or Joel at{" "}
+              <a href="mailto:joelcool65@gmail.com" style={emailLinkStyle}>
+                joelcool65@gmail.com
+              </a>
+              .
             </p>
           </article>
         </section>
