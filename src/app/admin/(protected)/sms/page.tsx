@@ -107,11 +107,23 @@ export default async function AdminSmsPage() {
           >
 {`MM/DD G1 Saint Johns W Calvary Bible L
 MM/DD/YYYY G2 St John W Cal Bible L
+MM/DD Game 1 Saint Johns W Calvary Bible L
+MM/DD/YYYY Game 2 St John W Cal Bible L
+MM/DD game1 Saint Johns W Calvary Bible L
+MM/DD 1stgame Saint Johns W Calvary Bible L
+MM/DD 2ndgame Saint Johns W Calvary Bible L
+MM/DD g 1 Saint Johns W Calvary Bible L
+MM/DD G 2 Saint Johns W Calvary Bible L
+MM/DD 1st game Saint Johns won against Calvary Bible
+MM/DD 2nd game Saint Johns lost to Calvary Bible
 MM/DD G1 Saint Johns T Calvary Bible T
 MM/DD/YYYY G2 St John vs Cal Bible Tie game
 
 Notes:
+- Date can be MM/DD or MM/DD/YYYY. If omitted, today in America/New_York is used.
 - Year is optional. If omitted, current year in America/New_York is assumed.
+- Game slot can be G1/G2, G 1/G 2, g 1/g 2, Game 1/Game 2, game1/game2, 1stgame/2ndgame, 1st Game/2nd Game, 1st/2nd, or first/second.
+- Result words accepted include W/L, won/lost, beat/defeated, and tie formats above.
 - If aliases are unclear, the system replies asking for exact team names.
 - Schedule must already contain the matching game slot in the active season.`}
           </pre>

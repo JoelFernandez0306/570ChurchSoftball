@@ -8,11 +8,19 @@ const LOSS_WORDS = new Set(["l", "loss", "lose", "loses", "lost", "losed"]);
 function parseSlot(token: string): GameSlot | null {
   const normalized = token.toLowerCase().replace(/[^a-z0-9]/g, "");
 
-  if (["g1", "game1", "1", "1st", "first"].includes(normalized)) {
+  if (
+    ["g1", "game1", "1", "1st", "first", "1stgame", "firstgame"].includes(
+      normalized,
+    )
+  ) {
     return 1;
   }
 
-  if (["g2", "game2", "2", "2nd", "second"].includes(normalized)) {
+  if (
+    ["g2", "game2", "2", "2nd", "second", "2ndgame", "secondgame"].includes(
+      normalized,
+    )
+  ) {
     return 2;
   }
 
@@ -107,18 +115,32 @@ export function parseSmsCommand(input: string): SmsParseResult {
     };
   }
 
-  const slotIndex = tokens.findIndex((token) => parseSlot(token) !== null);
-  if (slotIndex === -1) {
-    errors.push("Missing game slot (G1 or G2)");
-  }
+  let slot: GameSlot | null = null;
+  const spacedSlotIndex = tokens.findIndex(
+    (token, index) =>
+      ["game", "g"].includes(token.toLowerCase()) &&
+      index + 1 < tokens.length &&
+      parseSlot(tokens[index + 1]) !== null,
+  );
 
-  const slot = slotIndex >= 0 ? parseSlot(tokens[slotIndex]) ?? 1 : 1;
-  if (slotIndex >= 0) {
-    tokens.splice(slotIndex, 1);
-    if (tokens[slotIndex]?.toLowerCase() === "game") {
+  if (spacedSlotIndex >= 0) {
+    slot = parseSlot(tokens[spacedSlotIndex + 1]);
+    tokens.splice(spacedSlotIndex, 2);
+  } else {
+    const slotIndex = tokens.findIndex((token) => parseSlot(token) !== null);
+    if (slotIndex >= 0) {
+      slot = parseSlot(tokens[slotIndex]);
       tokens.splice(slotIndex, 1);
+      if (tokens[slotIndex]?.toLowerCase() === "game") {
+        tokens.splice(slotIndex, 1);
+      }
     }
   }
+
+  if (slot === null) {
+    errors.push("Missing game slot (G1 or G2)");
+  }
+  const parsedSlot: GameSlot = slot ?? 1;
 
   const body = tokens.join(" ");
   const tieByMarker = body.match(/(.+?)\s+(T|TIE)\s+(.+?)\s+(T|TIE)$/i);
@@ -128,7 +150,7 @@ export function parseSmsCommand(input: string): SmsParseResult {
 
     return {
       date,
-      slot,
+      slot: parsedSlot,
       isTie: true,
       winnerAlias: teamA,
       loserAlias: teamB,
@@ -144,7 +166,7 @@ export function parseSmsCommand(input: string): SmsParseResult {
 
     return {
       date,
-      slot,
+      slot: parsedSlot,
       isTie: true,
       winnerAlias: teamA,
       loserAlias: teamB,
@@ -174,7 +196,7 @@ export function parseSmsCommand(input: string): SmsParseResult {
 
     return {
       date,
-      slot,
+      slot: parsedSlot,
       isTie: false,
       winnerAlias,
       loserAlias,
@@ -190,7 +212,7 @@ export function parseSmsCommand(input: string): SmsParseResult {
   if (naturalWinnerMatch) {
     return {
       date,
-      slot,
+      slot: parsedSlot,
       isTie: false,
       winnerAlias: naturalWinnerMatch[1].trim(),
       loserAlias: naturalWinnerMatch[3].trim(),
@@ -206,7 +228,7 @@ export function parseSmsCommand(input: string): SmsParseResult {
   if (naturalLoserMatch) {
     return {
       date,
-      slot,
+      slot: parsedSlot,
       isTie: false,
       winnerAlias: naturalLoserMatch[3].trim(),
       loserAlias: naturalLoserMatch[1].trim(),
@@ -216,12 +238,12 @@ export function parseSmsCommand(input: string): SmsParseResult {
   }
 
   errors.push(
-    "Could not parse teams. Use format: MM/DD G1 TeamA W TeamB L, MM/DD G1 TeamA won against TeamB, or MM/DD G1 TeamA T TeamB T",
+    "Could not parse teams. Use format: MM/DD G1 TeamA W TeamB L, MM/DD Game 1 TeamA won against TeamB, or MM/DD G1 TeamA T TeamB T",
   );
 
   return {
     date,
-    slot,
+    slot: parsedSlot,
     isTie: false,
     winnerAlias: "",
     loserAlias: "",

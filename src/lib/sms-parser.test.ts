@@ -67,6 +67,58 @@ describe("parseSmsCommand", () => {
     expect(parsed.date).toBe(parseLeagueDate(5, 12));
   });
 
+  it("parses spaced game slot phrase Game 1", () => {
+    const parsed = parseSmsCommand("05/12 Game 1 St John W Cal Bible L");
+
+    expect(parsed.errors).toEqual([]);
+    expect(parsed.isTie).toBe(false);
+    expect(parsed.slot).toBe(1);
+    expect(parsed.winnerAlias).toBe("St John");
+    expect(parsed.loserAlias).toBe("Cal Bible");
+    expect(parsed.date).toBe(parseLeagueDate(5, 12));
+  });
+
+  it("parses spaced game slot phrase Game 2", () => {
+    const parsed = parseSmsCommand("05/12/2026 Game 2 St John W Cal Bible L");
+
+    expect(parsed.errors).toEqual([]);
+    expect(parsed.isTie).toBe(false);
+    expect(parsed.slot).toBe(2);
+    expect(parsed.winnerAlias).toBe("St John");
+    expect(parsed.loserAlias).toBe("Cal Bible");
+    expect(parsed.date).toBe("2026-05-12");
+  });
+
+  it("parses slot aliases for game 1", () => {
+    const slotVariants = ["game1", "1stgame", "1stGame", "1st Game", "g1", "g 1", "G 1"];
+
+    for (const slotToken of slotVariants) {
+      const parsed = parseSmsCommand(`05/12 ${slotToken} St John W Cal Bible L`);
+
+      expect(parsed.errors).toEqual([]);
+      expect(parsed.isTie).toBe(false);
+      expect(parsed.slot).toBe(1);
+      expect(parsed.winnerAlias).toBe("St John");
+      expect(parsed.loserAlias).toBe("Cal Bible");
+      expect(parsed.date).toBe(parseLeagueDate(5, 12));
+    }
+  });
+
+  it("parses slot aliases for game 2", () => {
+    const slotVariants = ["game2", "2ndgame", "2ndGame", "2nd Game", "g2", "g 2", "G 2"];
+
+    for (const slotToken of slotVariants) {
+      const parsed = parseSmsCommand(`05/12 ${slotToken} St John W Cal Bible L`);
+
+      expect(parsed.errors).toEqual([]);
+      expect(parsed.isTie).toBe(false);
+      expect(parsed.slot).toBe(2);
+      expect(parsed.winnerAlias).toBe("St John");
+      expect(parsed.loserAlias).toBe("Cal Bible");
+      expect(parsed.date).toBe(parseLeagueDate(5, 12));
+    }
+  });
+
   it("returns parse errors for invalid messages", () => {
     const parsed = parseSmsCommand("St John won");
 

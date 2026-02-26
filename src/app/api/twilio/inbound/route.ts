@@ -4,7 +4,7 @@ import { getServiceSupabaseClient } from "@/lib/supabase/service";
 import { parseSmsCommand } from "@/lib/sms-parser";
 import { resolveTeamAlias } from "@/lib/team-resolver";
 import { validateTwilioSignature, twimlMessage } from "@/lib/twilio";
-import { cleanPhone } from "@/lib/utils";
+import { cleanPhone, formatLeagueDateForDisplay } from "@/lib/utils";
 import { env } from "@/lib/env";
 import {
   formatCompetitionPhaseLabel,
@@ -197,15 +197,16 @@ export async function POST(request: Request) {
     revalidatePath("/standings");
     revalidatePath("/admin/schedule");
     revalidatePath("/admin/standings");
+    const displayDate = formatLeagueDateForDisplay(parsed.date);
 
     if (parsed.isTie) {
       return twimlResponse(
-        `Recorded: ${parsed.date} G${parsed.slot} ${winner.teamName} T and ${loser.teamName} T.`,
+        `OK, I got it. ${winner.teamName} and ${loser.teamName} tied in Game ${parsed.slot} on ${displayDate}.`,
       );
     }
 
     return twimlResponse(
-      `Recorded: ${parsed.date} G${parsed.slot} ${winner.teamName} W vs ${loser.teamName} L.`,
+      `OK, I got it. ${winner.teamName} won vs ${loser.teamName} in Game ${parsed.slot} on ${displayDate}.`,
     );
   } catch (error) {
     const message = error instanceof Error ? error.message : "Unexpected SMS processing error";
