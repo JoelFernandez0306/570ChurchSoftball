@@ -45,6 +45,28 @@ describe("parseSmsCommand", () => {
     expect(parsed.date).toBe("2026-05-12");
   });
 
+  it("parses natural winner phrase with ordinal slot and against", () => {
+    const parsed = parseSmsCommand("05/12 1st game St Paul won against St Lukes");
+
+    expect(parsed.errors).toEqual([]);
+    expect(parsed.isTie).toBe(false);
+    expect(parsed.slot).toBe(1);
+    expect(parsed.winnerAlias).toBe("St Paul");
+    expect(parsed.loserAlias).toBe("St Lukes");
+    expect(parsed.date).toBe(parseLeagueDate(5, 12));
+  });
+
+  it("parses natural loser phrase with ordinal slot and misspelled losed", () => {
+    const parsed = parseSmsCommand("05/12 2nd game St Paul losed against St Lukes");
+
+    expect(parsed.errors).toEqual([]);
+    expect(parsed.isTie).toBe(false);
+    expect(parsed.slot).toBe(2);
+    expect(parsed.winnerAlias).toBe("St Lukes");
+    expect(parsed.loserAlias).toBe("St Paul");
+    expect(parsed.date).toBe(parseLeagueDate(5, 12));
+  });
+
   it("returns parse errors for invalid messages", () => {
     const parsed = parseSmsCommand("St John won");
 

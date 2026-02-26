@@ -35,8 +35,11 @@ export async function POST(request: Request) {
     const params = formDataToObject(formData);
 
     const signature = request.headers.get("x-twilio-signature");
-    const expectedUrl = env.twilioWebhookUrl || request.url;
-    const signatureOk = validateTwilioSignature(signature, expectedUrl, params);
+    const expectedUrls = [request.url];
+    if (env.twilioWebhookUrl) {
+      expectedUrls.push(env.twilioWebhookUrl);
+    }
+    const signatureOk = validateTwilioSignature(signature, expectedUrls, params);
 
     if (!signatureOk) {
       return twimlResponse("Unauthorized Twilio request.", 403);

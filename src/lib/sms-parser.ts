@@ -2,8 +2,8 @@ import { parseLeagueDate, toLeagueDateString } from "@/lib/utils";
 import type { GameSlot, SmsParseResult } from "@/lib/types";
 
 const DATE_TOKEN = /^(\d{1,2})\/(\d{1,2})(?:\/(\d{2}|\d{4}))?$/;
-const WIN_WORDS = new Set(["w", "win", "won"]);
-const LOSS_WORDS = new Set(["l", "loss", "lost"]);
+const WIN_WORDS = new Set(["w", "win", "wins", "won"]);
+const LOSS_WORDS = new Set(["l", "loss", "lose", "loses", "lost", "losed"]);
 
 function parseSlot(token: string): GameSlot | null {
   const normalized = token.toLowerCase().replace(/[^a-z0-9]/g, "");
@@ -115,6 +115,9 @@ export function parseSmsCommand(input: string): SmsParseResult {
   const slot = slotIndex >= 0 ? parseSlot(tokens[slotIndex]) ?? 1 : 1;
   if (slotIndex >= 0) {
     tokens.splice(slotIndex, 1);
+    if (tokens[slotIndex]?.toLowerCase() === "game") {
+      tokens.splice(slotIndex, 1);
+    }
   }
 
   const body = tokens.join(" ");
@@ -151,46 +154,78 @@ export function parseSmsCommand(input: string): SmsParseResult {
   }
 
   const match = body.match(
-    /(.+?)\s+(W|WIN|WON|L|LOSS|LOST)\s+(.+?)\s+(W|WIN|WON|L|LOSS|LOST)$/i,
+    /(.+?)\s+(W|WIN|WINS|WON|L|LOSS|LOSE|LOSES|LOST|LOSED)\s+(.+?)\s+(W|WIN|WINS|WON|L|LOSS|LOSE|LOSES|LOST|LOSED)$/i,
   );
 
-  if (!match) {
-    errors.push(
-      "Could not parse teams. Use format: MM/DD G1 TeamA W TeamB L or MM/DD G1 TeamA T TeamB T",
-    );
+  if (match) {
+    const teamA = match[1].trim();
+    const statusA = normalizeResultToken(match[2]);
+    const teamB = match[3].trim();
+    const statusB = normalizeResultToken(match[4]);
+
+    if (!statusA || !statusB || statusA === statusB) {
+      errors.push("Result markers must include one winner and one loser");
+    }
+
+    const winnerAlias = statusA === "w" ? teamA : teamB;
+    const loserAlias = statusA === "w" ? teamB : teamA;
+
+    const confidence = errors.length === 0 ? "high" : "low";
 
     return {
       date,
       slot,
       isTie: false,
-      winnerAlias: "",
-      loserAlias: "",
-      confidence: "low",
+      winnerAlias,
+      loserAlias,
+      confidence,
       errors,
     };
   }
 
-  const teamA = match[1].trim();
-  const statusA = normalizeResultToken(match[2]);
-  const teamB = match[3].trim();
-  const statusB = normalizeResultToken(match[4]);
+  const naturalWinnerMatch = body.match(
+    /(.+?)\s+(WON|WIN|WINS|BEAT|DEFEATED)\s+(?:AGAINST\s+|VS\s+|VERSUS\s+|OVER\s+)?(.+)$/i,
+  );
 
-  if (!statusA || !statusB || statusA === statusB) {
-    errors.push("Result markers must include one winner and one loser");
+  if (naturalWinnerMatch) {
+    return {
+      date,
+      slot,
+      isTie: false,
+      winnerAlias: naturalWinnerMatch[1].trim(),
+      loserAlias: naturalWinnerMatch[3].trim(),
+      confidence: errors.length === 0 ? "high" : "low",
+      errors,
+    };
   }
 
-  const winnerAlias = statusA === "w" ? teamA : teamB;
-  const loserAlias = statusA === "w" ? teamB : teamA;
+  const naturalLoserMatch = body.match(
+    /(.+?)\s+(LOST|LOSS|LOSE|LOSES|LOSED)\s+(?:TO\s+|AGAINST\s+|VS\s+|VERSUS\s+)?(.+)$/i,
+  );
 
-  const confidence = errors.length === 0 ? "high" : "low";
+  if (naturalLoserMatch) {
+    return {
+      date,
+      slot,
+      isTie: false,
+      winnerAlias: naturalLoserMatch[3].trim(),
+      loserAlias: naturalLoserMatch[1].trim(),
+      confidence: errors.length === 0 ? "high" : "low",
+      errors,
+    };
+  }
+
+  errors.push(
+    "Could not parse teams. Use format: MM/DD G1 TeamA W TeamB L, MM/DD G1 TeamA won against TeamB, or MM/DD G1 TeamA T TeamB T",
+  );
 
   return {
     date,
     slot,
     isTie: false,
-    winnerAlias,
-    loserAlias,
-    confidence,
+    winnerAlias: "",
+    loserAlias: "",
+    confidence: "low",
     errors,
   };
 }
