@@ -314,6 +314,56 @@ export async function updateGameResultAction(formData: FormData) {
   revalidatePath("/");
 }
 
+export async function updateGameAction(formData: FormData) {
+  await requireAdminPageAccess();
+  const supabase = getServiceSupabaseClient();
+
+  const gameId = String(formData.get("game_id") ?? "");
+  const gameDate = String(formData.get("game_date") ?? "").trim();
+  const gameTime = String(formData.get("game_time") ?? "").trim();
+  const location = String(formData.get("location") ?? "").trim();
+  const gameNumber = parseGameNumber(formData.get("game_number"));
+  const gamePhase = parseCompetitionPhase(formData.get("game_phase"));
+  const homeTeamId = String(formData.get("home_team_id") ?? "");
+  const awayTeamId = String(formData.get("away_team_id") ?? "");
+
+  if (!gameId) {
+    throw new Error("Game ID is required");
+  }
+
+  if (!gameDate || !homeTeamId || !awayTeamId) {
+    throw new Error("Date, home team, and away team are required");
+  }
+
+  if (homeTeamId === awayTeamId) {
+    throw new Error("Home team and away team must be different.");
+  }
+
+  const { error } = await supabase
+    .schema("league")
+    .from("games")
+    .update({
+      game_date: gameDate,
+      game_time: gameTime || null,
+      location: location || null,
+      game_number: gameNumber,
+      game_phase: gamePhase,
+      home_team_id: homeTeamId,
+      away_team_id: awayTeamId,
+    })
+    .eq("id", gameId);
+
+  if (error) {
+    throw new Error(`Failed to update game: ${error.message}`);
+  }
+
+  revalidatePath("/admin/schedule");
+  revalidatePath("/admin/standings");
+  revalidatePath("/schedule");
+  revalidatePath("/standings");
+  revalidatePath("/");
+}
+
 export async function deleteGameAction(formData: FormData) {
   await requireAdminPageAccess();
   const supabase = getServiceSupabaseClient();

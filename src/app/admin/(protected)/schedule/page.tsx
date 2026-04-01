@@ -1,7 +1,9 @@
 import {
   createGameAction,
   deleteGameAction,
+  updateGameAction,
 } from "@/app/admin/(protected)/actions";
+import { GameEditForm } from "@/components/game-edit-form";
 import { GameResultEditor } from "@/components/game-result-editor";
 import { ScheduleBuilderForm } from "@/components/schedule-builder-form";
 import { SeasonManagerForm } from "@/components/season-manager-form";
@@ -117,13 +119,28 @@ export default async function AdminSchedulePage({
                       {formatCompetitionPhaseLabel(game.game_phase)})
                     </p>
                   </div>
-                  <form action={deleteGameAction}>
-                    <input type="hidden" name="game_id" value={game.id} />
-                    <button type="submit" className="danger-button">
-                      Delete
-                    </button>
-                  </form>
+                  <div style={{ display: "flex", gap: "0.5rem" }}>
+                    <form action={deleteGameAction}>
+                      <input type="hidden" name="game_id" value={game.id} />
+                      <button type="submit" className="danger-button">
+                        Delete
+                      </button>
+                    </form>
+                  </div>
                 </div>
+
+                <GameEditForm
+                  gameId={game.id}
+                  gameDate={game.game_date}
+                  gameTime={game.game_time ?? null}
+                  location={game.location ?? null}
+                  gameNumber={game.game_number}
+                  gamePhase={game.game_phase}
+                  homeTeamId={game.home_team_id}
+                  awayTeamId={game.away_team_id}
+                  teams={teams.map((team) => ({ id: team.id, name: team.name }))}
+                  updateGameAction={updateGameAction}
+                />
 
                 <GameResultEditor
                   gameId={game.id}
