@@ -554,10 +554,6 @@ button:hover,
     grid-template-columns: 1fr;
   }
 
-  .hero-grid-live > div:last-child {
-    order: -1;
-  }
-
   .admin-sidebar {
     position: static;
   }
