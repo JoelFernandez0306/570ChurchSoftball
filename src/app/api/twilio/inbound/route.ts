@@ -79,6 +79,72 @@ export async function POST(request: Request) {
       return twimlResponse("This phone number is not allowed to report game results.", 403);
     }
 
+    const bodyUpper = body.trim().toUpperCase();
+
+    if (bodyUpper === "CLEAR LIVE") {
+      const { data: settings } = await supabase
+        .schema("league")
+        .from("settings")
+        .select("id")
+        .order("updated_at", { ascending: false })
+        .limit(1)
+        .maybeSingle();
+
+      if (settings?.id) {
+        await supabase
+          .schema("league")
+          .from("settings")
+          .update({
+            gamechanger_embed_url: null,
+            gamechanger_home_team: null,
+            gamechanger_away_team: null,
+          })
+          .eq("id", settings.id);
+      }
+
+      revalidatePath("/");
+      return twimlResponse("Live scoreboard cleared from the home page.");
+    }
+
+    if (bodyUpper.startsWith("LIVE ")) {
+      const rest = body.trim().slice(5).trim();
+      const spaceIdx = rest.indexOf(" ");
+      const embedUrl = spaceIdx === -1 ? rest : rest.slice(0, spaceIdx);
+      const remainder = spaceIdx === -1 ? "" : rest.slice(spaceIdx + 1).trim();
+
+      if (!embedUrl.startsWith("http")) {
+        return twimlResponse('Could not find a URL in your LIVE message. Try: LIVE https://...');
+      }
+
+      const vsMatch = remainder.match(/^(.+?)\s+vs\s+(.+)$/i);
+      const homeTeam = vsMatch ? vsMatch[1].trim() : null;
+      const awayTeam = vsMatch ? vsMatch[2].trim() : null;
+
+      const { data: settings } = await supabase
+        .schema("league")
+        .from("settings")
+        .select("id")
+        .order("updated_at", { ascending: false })
+        .limit(1)
+        .maybeSingle();
+
+      if (settings?.id) {
+        await supabase
+          .schema("league")
+          .from("settings")
+          .update({
+            gamechanger_embed_url: embedUrl,
+            gamechanger_home_team: homeTeam,
+            gamechanger_away_team: awayTeam,
+          })
+          .eq("id", settings.id);
+      }
+
+      revalidatePath("/");
+      const teamLine = homeTeam && awayTeam ? ` ${homeTeam} vs ${awayTeam}.` : "";
+      return twimlResponse(`Live scoreboard is now active on the home page.${teamLine} Text CLEAR LIVE when the game is over.`);
+    }
+
     const parsed = parseSmsCommand(body);
     if (parsed.errors.length > 0) {
       return twimlResponse(`Could not parse message. ${parsed.errors.join(". ")}`);

@@ -116,6 +116,33 @@ export async function loadLeagueSettings(): Promise<LeagueSettings> {
   };
 }
 
+export async function loadLiveScoreboard(): Promise<{
+  embedUrl: string | null;
+  homeTeam: string | null;
+  awayTeam: string | null;
+}> {
+  const supabase = getServiceSupabaseClient();
+  try {
+    const { data, error } = await supabase
+      .schema("league")
+      .from("settings")
+      .select("gamechanger_embed_url,gamechanger_home_team,gamechanger_away_team")
+      .order("updated_at", { ascending: false })
+      .limit(1)
+      .maybeSingle();
+
+    if (error) return { embedUrl: null, homeTeam: null, awayTeam: null };
+
+    return {
+      embedUrl: (data as { gamechanger_embed_url?: string | null })?.gamechanger_embed_url ?? null,
+      homeTeam: (data as { gamechanger_home_team?: string | null })?.gamechanger_home_team ?? null,
+      awayTeam: (data as { gamechanger_away_team?: string | null })?.gamechanger_away_team ?? null,
+    };
+  } catch {
+    return { embedUrl: null, homeTeam: null, awayTeam: null };
+  }
+}
+
 export async function loadActiveSeasonName(): Promise<string> {
   const settings = await loadLeagueSettings();
   const seasonName = settings.active_season_name?.trim();

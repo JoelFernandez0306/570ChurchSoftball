@@ -7,6 +7,7 @@ import {
   loadActiveCompetitionPhase,
   loadActiveSeasonName,
   loadGamesView,
+  loadLiveScoreboard,
   loadTeamsWithRoster,
 } from "@/lib/league-data";
 import { loadStandings } from "@/lib/standings";
@@ -14,12 +15,13 @@ import { loadStandings } from "@/lib/standings";
 export const dynamic = "force-dynamic";
 
 export default async function HomePage() {
-  const [games, standings, teams, activeSeasonName, activeCompetitionPhase] = await Promise.all([
+  const [games, standings, teams, activeSeasonName, activeCompetitionPhase, liveScoreboard] = await Promise.all([
     loadGamesView(),
     loadStandings(),
     loadTeamsWithRoster(),
     loadActiveSeasonName(),
     loadActiveCompetitionPhase(),
+    loadLiveScoreboard(),
   ]);
 
   const topThree = standings.slice(0, 3);
@@ -41,7 +43,7 @@ export default async function HomePage() {
               </div>
             </div>
 
-            <div className="card-grid">
+            <div className="card-grid" style={{ gridTemplateColumns: "repeat(2, minmax(0, 1fr))" }}>
               <article className="card">
                 <h3>Teams</h3>
                 <p>{teams.length} churches competing this season.</p>
@@ -50,34 +52,52 @@ export default async function HomePage() {
                 <h3>Games Scheduled</h3>
                 <p>{games.length} total game slots (doubleheaders included).</p>
               </article>
-              <article className="card">
-                <h3>Results Reported</h3>
-                <p>{games.filter((game) => game.winner_team_id || game.is_tie).length} final results posted.</p>
-              </article>
             </div>
           </div>
 
-          <aside className="card">
-            <h3>Top of the Table</h3>
-            {topThree.length === 0 ? (
-              <p className="empty-state">Standings will appear after results are recorded.</p>
-            ) : (
-              <ol className="stack" style={{ margin: 0, paddingInlineStart: "1rem" }}>
-                {topThree.map((row) => (
-                  <li key={row.teamId}>
-                    <strong>{row.teamName}</strong>
-                    <div className="footer-note">
-                      {row.wins}-{row.losses}-{row.ties} ({row.winPct.toFixed(3)})
-                    </div>
-                  </li>
-                ))}
-              </ol>
-            )}
+          <div className="stack">
+            <aside className="card">
+              <h3>Top of the Table</h3>
+              {topThree.length === 0 ? (
+                <p className="empty-state">Standings will appear after results are recorded.</p>
+              ) : (
+                <ol className="stack" style={{ margin: 0, paddingInlineStart: "1rem" }}>
+                  {topThree.map((row) => (
+                    <li key={row.teamId}>
+                      <strong>{row.teamName}</strong>
+                      <div className="footer-note">
+                        {row.wins}-{row.losses}-{row.ties} ({row.winPct.toFixed(3)})
+                      </div>
+                    </li>
+                  ))}
+                </ol>
+              )}
+              <p className="footer-note" style={{ marginTop: "0.9rem" }}>
+                Full details on the <Link href="/standings">Standings page</Link>.
+              </p>
+            </aside>
 
-            <p className="footer-note" style={{ marginTop: "0.9rem" }}>
-              Full details on the <Link href="/standings">Standings page</Link>.
-            </p>
-          </aside>
+            <aside className="card">
+              <h3>Live Scoreboard</h3>
+              {liveScoreboard.embedUrl ? (
+                <div className="stack">
+                  {liveScoreboard.homeTeam && liveScoreboard.awayTeam && (
+                    <p style={{ margin: 0, fontWeight: 600 }}>
+                      {liveScoreboard.homeTeam} vs {liveScoreboard.awayTeam}
+                    </p>
+                  )}
+                  <iframe
+                    src={liveScoreboard.embedUrl}
+                    style={{ width: "100%", border: "none", borderRadius: "var(--radius)", minHeight: "220px" }}
+                    title="Live GameChanger Scoreboard"
+                    allowFullScreen
+                  />
+                </div>
+              ) : (
+                <p className="empty-state">No live game right now.</p>
+              )}
+            </aside>
+          </div>
         </section>
 
         <section className="page-surface">
