@@ -31,7 +31,7 @@ export default async function HomePage() {
     <>
       <SiteHeader />
       <main className="main-shell content-width">
-        <section className="page-surface hero-grid">
+        <section className={`page-surface hero-grid${liveScoreboard.embedUrl ? " hero-grid-live" : ""}`}>
           <div className="stack">
             <div className="page-header">
               <div>
