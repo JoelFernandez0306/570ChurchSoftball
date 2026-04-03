@@ -1,4 +1,5 @@
-import { createPlayerAction, deletePlayerAction } from "@/app/admin/(protected)/actions";
+import { createPlayerAction, deletePlayerAction, updatePlayerAction } from "@/app/admin/(protected)/actions";
+import { PlayerEditForm } from "@/components/player-edit-form";
 import { RosterBuilderForm } from "@/components/roster-builder-form";
 import { loadTeamsWithRoster } from "@/lib/league-data";
 
@@ -48,15 +49,26 @@ export default async function AdminRostersPage({
                 <ul className="stack" style={{ margin: 0, paddingInlineStart: "1rem" }}>
                   {team.players.map((player) => (
                     <li key={player.id}>
-                      {player.full_name}
-                      {player.jersey_number ? ` (#${player.jersey_number})` : ""}
-                      {player.role === "coach" ? " - Coach" : " - Player"}
-                      <form action={deletePlayerAction} style={{ display: "inline", marginLeft: "0.45rem" }}>
-                        <input type="hidden" name="player_id" value={player.id} />
-                        <button type="submit" className="ghost-button">
-                          Remove
-                        </button>
-                      </form>
+                      <div style={{ display: "flex", alignItems: "center", gap: "0.45rem", flexWrap: "wrap" }}>
+                        <span>
+                          {player.full_name}
+                          {player.jersey_number ? ` (#${player.jersey_number})` : ""}
+                          {player.role === "coach" ? " - Coach" : " - Player"}
+                        </span>
+                        <PlayerEditForm
+                          playerId={player.id}
+                          fullName={player.full_name}
+                          jerseyNumber={player.jersey_number ?? null}
+                          role={player.role}
+                          updatePlayerAction={updatePlayerAction}
+                        />
+                        <form action={deletePlayerAction}>
+                          <input type="hidden" name="player_id" value={player.id} />
+                          <button type="submit" className="ghost-button">
+                            Remove
+                          </button>
+                        </form>
+                      </div>
                     </li>
                   ))}
                 </ul>

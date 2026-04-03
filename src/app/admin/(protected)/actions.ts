@@ -175,6 +175,41 @@ export async function createPlayerAction(formData: FormData) {
   redirect(`/admin/rosters?team_id=${encodeURIComponent(teamId)}`);
 }
 
+export async function updatePlayerAction(formData: FormData) {
+  await requireAdminPageAccess();
+  const supabase = getServiceSupabaseClient();
+
+  const playerId = String(formData.get("player_id") ?? "");
+  const fullName = String(formData.get("full_name") ?? "").trim();
+  const jerseyNumber = String(formData.get("jersey_number") ?? "").trim();
+  const role = parseRosterRole(formData.get("role"));
+
+  if (!playerId) {
+    throw new Error("Player ID is required");
+  }
+
+  if (!fullName) {
+    throw new Error("Full name is required");
+  }
+
+  const { error } = await supabase
+    .schema("league")
+    .from("players")
+    .update({
+      full_name: fullName,
+      jersey_number: jerseyNumber || null,
+      role,
+    })
+    .eq("id", playerId);
+
+  if (error) {
+    throw new Error(`Failed to update player: ${error.message}`);
+  }
+
+  revalidatePath("/admin/rosters");
+  revalidatePath("/teams");
+}
+
 export async function deletePlayerAction(formData: FormData) {
   await requireAdminPageAccess();
   const supabase = getServiceSupabaseClient();
