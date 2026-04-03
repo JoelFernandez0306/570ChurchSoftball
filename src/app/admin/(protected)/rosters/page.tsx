@@ -39,7 +39,7 @@ export default async function AdminRostersPage({
           </div>
         </div>
 
-        <div className="card-grid">
+        <div className="card-grid" style={{ gridTemplateColumns: "repeat(2, minmax(0, 1fr))" }}>
           {teams.map((team) => (
             <article className="card" key={team.id}>
               <h4>{team.name}</h4>
