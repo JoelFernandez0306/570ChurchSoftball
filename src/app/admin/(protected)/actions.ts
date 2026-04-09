@@ -636,6 +636,42 @@ export async function addAdminByEmailAction(formData: FormData) {
   redirect("/admin/dashboard?invite_success=1");
 }
 
+export async function saveGcOrgStatsUrlAction(formData: FormData) {
+  await requireAdminPageAccess();
+  const supabase = getServiceSupabaseClient();
+
+  const url = String(formData.get("gamechanger_org_stats_url") ?? "").trim();
+
+  const { data: settings, error: settingsError } = await supabase
+    .schema("league")
+    .from("settings")
+    .select("id")
+    .order("updated_at", { ascending: false })
+    .limit(1)
+    .maybeSingle();
+
+  if (settingsError) {
+    throw new Error(`Failed to load settings: ${settingsError.message}`);
+  }
+
+  if (!settings) {
+    throw new Error("League settings not found.");
+  }
+
+  const { error } = await supabase
+    .schema("league")
+    .from("settings")
+    .update({ gamechanger_org_stats_url: url || null })
+    .eq("id", settings.id);
+
+  if (error) {
+    throw new Error(`Failed to save stats URL: ${error.message}`);
+  }
+
+  revalidatePath("/stats");
+  revalidatePath("/admin/dashboard");
+}
+
 export async function removeAdminAction(formData: FormData) {
   const currentUser = await requireAdminPageAccess();
   const supabase = getServiceSupabaseClient();

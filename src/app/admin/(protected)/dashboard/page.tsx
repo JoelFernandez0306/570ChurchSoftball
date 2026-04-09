@@ -8,10 +8,12 @@ import {
   loadTeamsWithRoster,
   loadAllowedSmsNumbers,
   loadAdmins,
+  loadGcOrgStatsUrl,
 } from "@/lib/league-data";
 import { loadStandings } from "@/lib/standings";
 import {
   removeAdminAction,
+  saveGcOrgStatsUrlAction,
 } from "@/app/admin/(protected)/actions";
 
 export const dynamic = "force-dynamic";
@@ -33,7 +35,7 @@ export default async function AdminDashboardPage({ searchParams }: AdminDashboar
       : "";
   const inviteSuccess = resolvedSearchParams?.invite_success === "1";
 
-  const [teams, games, standings, smsNumbers, admins, activeSeasonName, activeCompetitionPhase] =
+  const [teams, games, standings, smsNumbers, admins, activeSeasonName, activeCompetitionPhase, gcOrgStatsUrl] =
     await Promise.all([
     loadTeamsWithRoster(),
     loadGamesView(),
@@ -42,6 +44,7 @@ export default async function AdminDashboardPage({ searchParams }: AdminDashboar
     loadAdmins(),
     loadActiveSeasonName(),
     loadActiveCompetitionPhase(),
+    loadGcOrgStatsUrl(),
     ]);
 
   const reported = games.filter((game) => game.winner_team_id || game.is_tie).length;
@@ -115,6 +118,42 @@ export default async function AdminDashboardPage({ searchParams }: AdminDashboar
             View Public Standings
           </Link>
         </div>
+      </section>
+
+      <section className="page-surface stack">
+        <div className="page-header">
+          <div>
+            <h3>GameChanger Stats</h3>
+            <p>
+              Paste your GameChanger Organization leaderboard URL to display live player stats on
+              the public{" "}
+              <a href="/stats" target="_blank" rel="noopener noreferrer">
+                /stats
+              </a>{" "}
+              page.
+            </p>
+          </div>
+        </div>
+
+        <form action={saveGcOrgStatsUrlAction} className="form-grid">
+          <label>
+            Organization Stats URL
+            <input
+              name="gamechanger_org_stats_url"
+              type="url"
+              placeholder="https://web.gc.com/organizations/..."
+              defaultValue={gcOrgStatsUrl ?? ""}
+            />
+          </label>
+          <div style={{ alignSelf: "end" }}>
+            <button type="submit">Save</button>
+          </div>
+        </form>
+
+        <p className="footer-note">
+          From GameChanger: Organization &rarr; Share with Fans &rarr; copy the Leaderboard URL.
+          Set once — stats update automatically after every scored game.
+        </p>
       </section>
 
       <section className="page-surface stack">

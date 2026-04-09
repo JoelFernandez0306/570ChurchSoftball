@@ -6,6 +6,7 @@ const publicLinks = [
   { href: "/", label: "Home" },
   { href: "/schedule", label: "Schedule" },
   { href: "/standings", label: "Standings" },
+  { href: "/stats", label: "Stats" },
   { href: "/teams", label: "Teams & Rosters" },
   { href: "/rules", label: "Rules" },
 ];

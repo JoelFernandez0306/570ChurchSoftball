@@ -1,7 +1,6 @@
 create extension if not exists pgcrypto;
 
-DROP SCHEMA IF EXISTS league CASCADE;
-CREATE SCHEMA league;
+CREATE SCHEMA IF NOT EXISTS league;
 
 create table league.settings (
   id uuid primary key default gen_random_uuid(),
