@@ -52,6 +52,7 @@ export interface LeagueSettings {
   active_season_name: string;
   active_competition_phase: CompetitionPhase;
   gamechanger_org_stats_url: string | null;
+  gamechanger_org_scoreboard_url: string | null;
   created_at: string;
   updated_at: string;
 }

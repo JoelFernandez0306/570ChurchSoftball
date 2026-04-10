@@ -545,6 +545,32 @@ button:hover,
   min-width: 14rem;
 }
 
+.scoreboard-frame {
+  width: 100%;
+  border: none;
+  border-radius: var(--radius);
+  display: block;
+  height: 500px;
+}
+
+@media (max-width: 640px) {
+  .scoreboard-frame {
+    height: 420px;
+  }
+}
+
+@media (min-width: 1600px) {
+  .scoreboard-frame {
+    height: 580px;
+  }
+}
+
+@media (min-width: 1920px) {
+  .scoreboard-frame {
+    height: 640px;
+  }
+}
+
 @media (max-width: 940px) {
   .hero-grid,
   .card-grid,

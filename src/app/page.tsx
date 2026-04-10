@@ -1,4 +1,6 @@
 import Link from "next/link";
+import { format, parseISO } from "date-fns";
+import { formatInTimeZone } from "date-fns-tz";
 import { SiteHeader } from "@/components/site-header";
 import { ScheduleTable } from "@/components/schedule-table";
 import { StandingsTable } from "@/components/standings-table";
@@ -7,23 +9,67 @@ import {
   loadActiveCompetitionPhase,
   loadActiveSeasonName,
   loadGamesView,
-  loadLiveScoreboard,
+  loadGcOrgScoreboardUrl,
+  loadLeagueSettings,
 } from "@/lib/league-data";
 import { loadStandings } from "@/lib/standings";
 
 export const dynamic = "force-dynamic";
 
+function formatGameTime(time: string | null): string {
+  if (!time) return "";
+  const [h, m] = time.split(":").map(Number);
+  const ampm = h >= 12 ? "PM" : "AM";
+  const h12 = h % 12 || 12;
+  return m === 0 ? `${h12} ${ampm}` : `${h12}:${String(m).padStart(2, "0")} ${ampm}`;
+}
+
+function formatGameDate(date: string): string {
+  return format(parseISO(date + "T12:00:00"), "EEE, MMM d");
+}
+
 export default async function HomePage() {
-  const [games, standings, activeSeasonName, activeCompetitionPhase, liveScoreboard] = await Promise.all([
-    loadGamesView(),
-    loadStandings(),
-    loadActiveSeasonName(),
-    loadActiveCompetitionPhase(),
-    loadLiveScoreboard(),
-  ]);
+  const [games, standings, activeSeasonName, activeCompetitionPhase, gcOrgScoreboardUrl, settings] =
+    await Promise.all([
+      loadGamesView(),
+      loadStandings(),
+      loadActiveSeasonName(),
+      loadActiveCompetitionPhase(),
+      loadGcOrgScoreboardUrl(),
+      loadLeagueSettings(),
+    ]);
+
+  const today = formatInTimeZone(new Date(), settings.timezone, "yyyy-MM-dd");
+  const isGameDay = games.some((g) => g.game_date === today);
+
+  const unplayed = games.filter((g) => !g.winner_team_id && !g.is_tie);
+  const nextGameDate = unplayed.find((g) => g.game_date >= today)?.game_date ?? null;
+  const nextGame = nextGameDate ? unplayed.find((g) => g.game_date === nextGameDate) ?? null : null;
 
   const topThree = standings.slice(0, 3);
-  const nextGames = games.filter((game) => !game.winner_team_id && !game.is_tie).slice(0, 8);
+  const nextGames = unplayed.slice(0, 8);
+
+  const topOfTable = (
+    <>
+      {topThree.length === 0 ? (
+        <p className="empty-state">Standings will appear after results are recorded.</p>
+      ) : (
+        <ol className="stack" style={{ margin: 0, paddingInlineStart: "1rem" }}>
+          {topThree.map((row) => (
+            <li key={row.teamId}>
+              <strong>{row.teamName}</strong>
+              <div className="footer-note">
+                {row.wins}-{row.losses}-{row.ties} ({row.winPct.toFixed(3)})
+              </div>
+            </li>
+          ))}
+        </ol>
+      )}
+      <p className="footer-note" style={{ marginTop: "0.9rem" }}>
+        Full details on the <Link href="/standings">Standings page</Link>.
+      </p>
+    </>
+  );
 
   return (
     <>
@@ -40,49 +86,64 @@ export default async function HomePage() {
             </div>
           </div>
 
-          <div className="card-grid" style={{ gridTemplateColumns: "repeat(2, minmax(0, 1fr))" }}>
-            <aside className="card">
-              <h3>Live Scoreboard</h3>
-              {liveScoreboard.embedUrl ? (
-                <div className="stack">
-                  {liveScoreboard.homeTeam && liveScoreboard.awayTeam && (
-                    <p style={{ margin: 0, fontWeight: 600 }}>
-                      {liveScoreboard.homeTeam} vs {liveScoreboard.awayTeam}
-                    </p>
-                  )}
-                  <iframe
-                    src={liveScoreboard.embedUrl}
-                    style={{ width: "100%", border: "none", borderRadius: "var(--radius)", minHeight: "220px" }}
-                    title="Live GameChanger Scoreboard"
-                    allowFullScreen
-                  />
+          {isGameDay && gcOrgScoreboardUrl ? (
+            <>
+              {/* Game day — full-width live scoreboard */}
+              <aside className="card">
+                <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: "0.6rem" }}>
+                  <h3 style={{ margin: 0 }}>Live Scoreboard</h3>
+                  <span style={{
+                    display: "inline-flex", alignItems: "center", gap: "0.35rem",
+                    fontSize: "0.78rem", fontWeight: 700, color: "#155c35",
+                    background: "#cbeed7", borderRadius: "999px", padding: "0.2rem 0.6rem",
+                  }}>
+                    <span style={{ fontSize: "0.6rem" }}>●</span> Game Day
+                  </span>
                 </div>
-              ) : (
-                <p className="empty-state">No live game right now.</p>
-              )}
-            </aside>
+                <iframe
+                  className="scoreboard-frame"
+                  src={gcOrgScoreboardUrl}
+                  title="Live Scoreboard — powered by GameChanger"
+                  allow="fullscreen"
+                  sandbox="allow-scripts allow-same-origin allow-popups allow-forms"
+                />
+              </aside>
 
-            <aside className="card">
-              <h3>Top of the Table</h3>
-              {topThree.length === 0 ? (
-                <p className="empty-state">Standings will appear after results are recorded.</p>
-              ) : (
-                <ol className="stack" style={{ margin: 0, paddingInlineStart: "1rem" }}>
-                  {topThree.map((row) => (
-                    <li key={row.teamId}>
-                      <strong>{row.teamName}</strong>
-                      <div className="footer-note">
-                        {row.wins}-{row.losses}-{row.ties} ({row.winPct.toFixed(3)})
-                      </div>
-                    </li>
-                  ))}
-                </ol>
-              )}
-              <p className="footer-note" style={{ marginTop: "0.9rem" }}>
-                Full details on the <Link href="/standings">Standings page</Link>.
-              </p>
-            </aside>
-          </div>
+              {/* Top of table below on game day */}
+              <div className="card-grid" style={{ gridTemplateColumns: "repeat(2, minmax(0, 1fr))" }}>
+                <aside className="card">
+                  <h3>Top of the Table</h3>
+                  {topOfTable}
+                </aside>
+              </div>
+            </>
+          ) : (
+            /* Non-game day — 2-column grid */
+            <div className="card-grid" style={{ gridTemplateColumns: "repeat(2, minmax(0, 1fr))" }}>
+              <aside className="card">
+                <h3>Live Scoreboard</h3>
+                {isGameDay && !gcOrgScoreboardUrl ? (
+                  <p className="empty-state">
+                    Games are on today! Scoreboard setup pending — check back soon.
+                  </p>
+                ) : nextGame ? (
+                  <p className="empty-state">
+                    No live game right now.{" "}
+                    Next up:{" "}
+                    <strong>{formatGameDate(nextGame.game_date)}</strong>
+                    {nextGame.game_time ? <> at <strong>{formatGameTime(nextGame.game_time)}</strong></> : null}.
+                  </p>
+                ) : (
+                  <p className="empty-state">No upcoming games scheduled.</p>
+                )}
+              </aside>
+
+              <aside className="card">
+                <h3>Top of the Table</h3>
+                {topOfTable}
+              </aside>
+            </div>
+          )}
         </section>
 
         <section className="page-surface">

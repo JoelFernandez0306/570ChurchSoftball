@@ -71,7 +71,7 @@ export async function loadLeagueSettings(): Promise<LeagueSettings> {
     .schema("league")
     .from("settings")
     .select(
-      "id,league_name,season_year,timezone,active_season_name,active_competition_phase,gamechanger_org_stats_url,created_at,updated_at",
+      "id,league_name,season_year,timezone,active_season_name,active_competition_phase,gamechanger_org_stats_url,gamechanger_org_scoreboard_url,created_at,updated_at",
     )
     .order("updated_at", { ascending: false })
     .limit(1)
@@ -95,9 +95,10 @@ export async function loadLeagueSettings(): Promise<LeagueSettings> {
     }
 
     return {
-      ...(legacyResult.data as Omit<LeagueSettings, "active_competition_phase" | "gamechanger_org_stats_url">),
+      ...(legacyResult.data as Omit<LeagueSettings, "active_competition_phase" | "gamechanger_org_stats_url" | "gamechanger_org_scoreboard_url">),
       active_competition_phase: DEFAULT_COMPETITION_PHASE,
       gamechanger_org_stats_url: null,
+      gamechanger_org_scoreboard_url: null,
     };
   }
 
@@ -157,6 +158,24 @@ export async function loadGcOrgStatsUrl(): Promise<string | null> {
 
     if (error) return null;
     return (data as { gamechanger_org_stats_url?: string | null })?.gamechanger_org_stats_url ?? null;
+  } catch {
+    return null;
+  }
+}
+
+export async function loadGcOrgScoreboardUrl(): Promise<string | null> {
+  const supabase = getServiceSupabaseClient();
+  try {
+    const { data, error } = await supabase
+      .schema("league")
+      .from("settings")
+      .select("gamechanger_org_scoreboard_url")
+      .order("updated_at", { ascending: false })
+      .limit(1)
+      .maybeSingle();
+
+    if (error) return null;
+    return (data as { gamechanger_org_scoreboard_url?: string | null })?.gamechanger_org_scoreboard_url ?? null;
   } catch {
     return null;
   }
