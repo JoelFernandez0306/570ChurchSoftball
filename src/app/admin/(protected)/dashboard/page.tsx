@@ -154,7 +154,8 @@ export default async function AdminDashboardPage({ searchParams }: AdminDashboar
               </div>
             </form>
             <p className="footer-note">
-              From GameChanger: Organization &rarr; Tools &rarr; Create Scoreboard Widget &rarr; copy the <code>src</code> URL from the iframe code.
+              From GameChanger: Organization &rarr; Tools &rarr; Create Scoreboard Widget &rarr; copy only the URL inside <code>src="..."</code> from the iframe code.
+              Must be a <code>gc.com</code> widget URL — <strong>not</strong> a <code>web.gc.com</code> link (those block embedding).
             </p>
           </div>
 
