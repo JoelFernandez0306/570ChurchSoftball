@@ -1,0 +1,20 @@
+CREATE TABLE IF NOT EXISTS league.player_batting_stats (
+  id           UUID         PRIMARY KEY DEFAULT gen_random_uuid(),
+  player_name  TEXT         NOT NULL,
+  team_name    TEXT,
+  gp           INTEGER      NOT NULL DEFAULT 0,
+  pa           INTEGER      NOT NULL DEFAULT 0,
+  ab           INTEGER      NOT NULL DEFAULT 0,
+  avg          NUMERIC(5,4),
+  obp          NUMERIC(5,4),
+  slg          NUMERIC(5,4),
+  ops          NUMERIC(5,4),
+  h            INTEGER      NOT NULL DEFAULT 0,
+  singles      INTEGER      NOT NULL DEFAULT 0,
+  doubles      INTEGER      NOT NULL DEFAULT 0,
+  triples      INTEGER      NOT NULL DEFAULT 0,
+  hr           INTEGER      NOT NULL DEFAULT 0,
+  rbi          INTEGER      NOT NULL DEFAULT 0,
+  synced_at    TIMESTAMPTZ  NOT NULL DEFAULT NOW(),
+  UNIQUE (player_name, team_name)
+);

@@ -545,6 +545,45 @@ export async function loadTieOverrides(): Promise<
   return data ?? [];
 }
 
+export interface BattingStatRow {
+  player_name: string;
+  team_name: string | null;
+  gp: number;
+  pa: number;
+  ab: number;
+  avg: number | null;
+  obp: number | null;
+  slg: number | null;
+  ops: number | null;
+  h: number;
+  singles: number;
+  doubles: number;
+  triples: number;
+  hr: number;
+  rbi: number;
+  synced_at: string;
+}
+
+export async function loadBattingStats(): Promise<{ rows: BattingStatRow[]; syncedAt: string | null }> {
+  const supabase = getServiceSupabaseClient();
+  try {
+    const { data, error } = await supabase
+      .schema("league")
+      .from("player_batting_stats")
+      .select("player_name,team_name,gp,pa,ab,avg,obp,slg,ops,h,singles,doubles,triples,hr,rbi,synced_at")
+      .order("avg", { ascending: false, nullsFirst: false });
+
+    if (error) return { rows: [], syncedAt: null };
+    if (!data || data.length === 0) return { rows: [], syncedAt: null };
+
+    const rows = data as BattingStatRow[];
+    const syncedAt = rows[0]?.synced_at ?? null;
+    return { rows, syncedAt };
+  } catch {
+    return { rows: [], syncedAt: null };
+  }
+}
+
 export async function loadAdmins(): Promise<
   { id: string; user_id: string; full_name: string | null; active: boolean; created_at: string }[]
 > {
