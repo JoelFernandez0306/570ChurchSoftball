@@ -1,3 +1,4 @@
+import { SiteHeader } from "@/components/site-header";
 import { loadGcOrgStatsUrl } from "@/lib/league-data";
 
 export const dynamic = "force-dynamic";
@@ -6,6 +7,9 @@ export default async function StatsPage() {
   const statsUrl = await loadGcOrgStatsUrl();
 
   return (
+    <>
+      <SiteHeader />
+      <main className="main-shell content-width">
     <section className="page-surface stack">
       <div className="page-header">
         <div>
@@ -45,5 +49,7 @@ export default async function StatsPage() {
         </article>
       )}
     </section>
+      </main>
+    </>
   );
 }

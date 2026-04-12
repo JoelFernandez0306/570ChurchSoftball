@@ -4,12 +4,13 @@ import { formatInTimeZone } from "date-fns-tz";
 import { SiteHeader } from "@/components/site-header";
 import { ScheduleTable } from "@/components/schedule-table";
 import { StandingsTable } from "@/components/standings-table";
+import { GcScoreboardWidget } from "@/components/gc-scoreboard-widget";
 import {
   formatCompetitionPhaseLabel,
   loadActiveCompetitionPhase,
   loadActiveSeasonName,
   loadGamesView,
-  loadGcOrgScoreboardUrl,
+  loadGcOrgScoreboardWidgetId,
   loadLeagueSettings,
 } from "@/lib/league-data";
 import { loadStandings } from "@/lib/standings";
@@ -29,18 +30,19 @@ function formatGameDate(date: string): string {
 }
 
 export default async function HomePage() {
-  const [games, standings, activeSeasonName, activeCompetitionPhase, gcOrgScoreboardUrl, settings] =
+  const [games, standings, activeSeasonName, activeCompetitionPhase, gcOrgScoreboardWidgetId, settings] =
     await Promise.all([
       loadGamesView(),
       loadStandings(),
       loadActiveSeasonName(),
       loadActiveCompetitionPhase(),
-      loadGcOrgScoreboardUrl(),
+      loadGcOrgScoreboardWidgetId(),
       loadLeagueSettings(),
     ]);
 
   const today = formatInTimeZone(new Date(), settings.timezone, "yyyy-MM-dd");
   const isGameDay = games.some((g) => g.game_date === today);
+  const hasScoreboardWidget = Boolean(gcOrgScoreboardWidgetId);
 
   const unplayed = games.filter((g) => !g.winner_team_id && !g.is_tie);
   const nextGameDate = unplayed.find((g) => g.game_date >= today)?.game_date ?? null;
@@ -86,7 +88,7 @@ export default async function HomePage() {
             </div>
           </div>
 
-          {isGameDay && gcOrgScoreboardUrl ? (
+          {isGameDay && hasScoreboardWidget ? (
             <>
               {/* Game day — full-width live scoreboard */}
               <aside className="card">
@@ -100,13 +102,7 @@ export default async function HomePage() {
                     <span style={{ fontSize: "0.6rem" }}>●</span> Game Day
                   </span>
                 </div>
-                <iframe
-                  className="scoreboard-frame"
-                  src={gcOrgScoreboardUrl}
-                  title="Live Scoreboard — powered by GameChanger"
-                  allow="fullscreen"
-                  sandbox="allow-scripts allow-same-origin allow-popups allow-forms"
-                />
+                <GcScoreboardWidget widgetId={gcOrgScoreboardWidgetId!} />
               </aside>
 
               {/* Top of table below on game day */}
@@ -122,7 +118,7 @@ export default async function HomePage() {
             <div className="card-grid" style={{ gridTemplateColumns: "repeat(2, minmax(0, 1fr))" }}>
               <aside className="card">
                 <h3>Live Scoreboard</h3>
-                {isGameDay && !gcOrgScoreboardUrl ? (
+                {isGameDay && !hasScoreboardWidget ? (
                   <p className="empty-state">
                     Games are on today! Scoreboard setup pending — check back soon.
                   </p>

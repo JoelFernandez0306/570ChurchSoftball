@@ -636,11 +636,11 @@ export async function addAdminByEmailAction(formData: FormData) {
   redirect("/admin/dashboard?invite_success=1");
 }
 
-export async function saveGcOrgScoreboardUrlAction(formData: FormData) {
+export async function saveGcOrgScoreboardWidgetIdAction(formData: FormData) {
   await requireAdminPageAccess();
   const supabase = getServiceSupabaseClient();
 
-  const url = String(formData.get("gamechanger_org_scoreboard_url") ?? "").trim();
+  const widgetId = String(formData.get("gamechanger_org_scoreboard_widget_id") ?? "").trim();
 
   const { data: settings, error: settingsError } = await supabase
     .schema("league")
@@ -656,10 +656,10 @@ export async function saveGcOrgScoreboardUrlAction(formData: FormData) {
   const { error } = await supabase
     .schema("league")
     .from("settings")
-    .update({ gamechanger_org_scoreboard_url: url || null })
+    .update({ gamechanger_org_scoreboard_url: widgetId || null })
     .eq("id", settings.id);
 
-  if (error) throw new Error(`Failed to save scoreboard URL: ${error.message}`);
+  if (error) throw new Error(`Failed to save scoreboard widget ID: ${error.message}`);
 
   revalidatePath("/");
   revalidatePath("/admin/dashboard");

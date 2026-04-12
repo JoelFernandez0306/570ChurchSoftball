@@ -181,6 +181,11 @@ export async function loadGcOrgScoreboardUrl(): Promise<string | null> {
   }
 }
 
+export async function loadGcOrgScoreboardWidgetId(): Promise<string | null> {
+  // Widget ID is stored in the gamechanger_org_scoreboard_url column
+  return loadGcOrgScoreboardUrl();
+}
+
 export async function loadActiveSeasonName(): Promise<string> {
   const settings = await loadLeagueSettings();
   const seasonName = settings.active_season_name?.trim();

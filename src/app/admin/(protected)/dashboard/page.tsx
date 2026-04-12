@@ -9,13 +9,13 @@ import {
   loadAllowedSmsNumbers,
   loadAdmins,
   loadGcOrgStatsUrl,
-  loadGcOrgScoreboardUrl,
+  loadGcOrgScoreboardWidgetId,
 } from "@/lib/league-data";
 import { loadStandings } from "@/lib/standings";
 import {
   removeAdminAction,
   saveGcOrgStatsUrlAction,
-  saveGcOrgScoreboardUrlAction,
+  saveGcOrgScoreboardWidgetIdAction,
 } from "@/app/admin/(protected)/actions";
 
 export const dynamic = "force-dynamic";
@@ -37,7 +37,7 @@ export default async function AdminDashboardPage({ searchParams }: AdminDashboar
       : "";
   const inviteSuccess = resolvedSearchParams?.invite_success === "1";
 
-  const [teams, games, standings, smsNumbers, admins, activeSeasonName, activeCompetitionPhase, gcOrgStatsUrl, gcOrgScoreboardUrl] =
+  const [teams, games, standings, smsNumbers, admins, activeSeasonName, activeCompetitionPhase, gcOrgStatsUrl, gcOrgScoreboardWidgetId] =
     await Promise.all([
     loadTeamsWithRoster(),
     loadGamesView(),
@@ -47,7 +47,7 @@ export default async function AdminDashboardPage({ searchParams }: AdminDashboar
     loadActiveSeasonName(),
     loadActiveCompetitionPhase(),
     loadGcOrgStatsUrl(),
-    loadGcOrgScoreboardUrl(),
+    loadGcOrgScoreboardWidgetId(),
     ]);
 
   const reported = games.filter((game) => game.winner_team_id || game.is_tie).length;
@@ -139,14 +139,14 @@ export default async function AdminDashboardPage({ searchParams }: AdminDashboar
             <p style={{ margin: "0 0 0.6rem", color: "var(--ink-soft)", fontSize: "0.9rem" }}>
               Shown automatically on the home page on game days. Updates live as scorekeepers enter plays — no extra steps needed.
             </p>
-            <form action={saveGcOrgScoreboardUrlAction} className="form-grid">
+            <form action={saveGcOrgScoreboardWidgetIdAction} className="form-grid">
               <label>
-                Organization Scoreboard Widget URL
+                Scoreboard Widget ID
                 <input
-                  name="gamechanger_org_scoreboard_url"
-                  type="url"
-                  placeholder="https://gc.com/organizations/.../widgets/scoreboard"
-                  defaultValue={gcOrgScoreboardUrl ?? ""}
+                  name="gamechanger_org_scoreboard_widget_id"
+                  type="text"
+                  placeholder="xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx"
+                  defaultValue={gcOrgScoreboardWidgetId ?? ""}
                 />
               </label>
               <div style={{ alignSelf: "end" }}>
@@ -154,8 +154,7 @@ export default async function AdminDashboardPage({ searchParams }: AdminDashboar
               </div>
             </form>
             <p className="footer-note">
-              From GameChanger: Organization &rarr; Tools &rarr; Create Scoreboard Widget &rarr; copy only the URL inside <code>src="..."</code> from the iframe code.
-              Must be a <code>gc.com</code> widget URL — <strong>not</strong> a <code>web.gc.com</code> link (those block embedding).
+              From GameChanger: Organization &rarr; Tools &rarr; Create Scoreboard Widget &rarr; copy the <code>widgetId</code> value from the embed code (looks like <code>6afd8788-0c02-46a2-8859-...</code>).
             </p>
           </div>
 

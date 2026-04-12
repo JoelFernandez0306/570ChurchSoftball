@@ -553,6 +553,13 @@ button:hover,
   height: 500px;
 }
 
+.scoreboard-widget-container {
+  width: 100%;
+  border-radius: var(--radius);
+  overflow: hidden;
+  min-height: 300px;
+}
+
 @media (max-width: 640px) {
   .scoreboard-frame {
     height: 420px;
