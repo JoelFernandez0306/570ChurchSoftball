@@ -4,25 +4,33 @@
  * Scrapes batting stats from the GameChanger organization stats page and
  * upserts them into the Supabase league.player_batting_stats table.
  *
- * Strategy:
- *   1. Intercept GC's internal API responses as the React app loads
- *   2. Fall back to DOM table extraction if no JSON response is captured
+ * Strategy (in order):
+ *   1. Intercept GC's internal API JSON responses as the React app loads
+ *   2. Standard <table> / ARIA role="table" DOM extraction
+ *   3. Div-based table extraction (GC may use custom components)
  *
  * Required environment variables:
  *   SUPABASE_URL              — e.g. https://xxxx.supabase.co
  *   SUPABASE_SERVICE_ROLE_KEY — service role key (not anon key)
  *   GC_ORG_ID                 — GameChanger organization ID (e.g. 998p0wVMzCOT)
+ *
+ * Optional:
+ *   GC_DEBUG=1  — save a screenshot + HTML dump regardless of outcome
  */
 
 import { chromium } from "playwright";
 import { createClient } from "@supabase/supabase-js";
+import { writeFileSync } from "fs";
 
 const ORG_ID = process.env.GC_ORG_ID;
 const SUPABASE_URL = process.env.SUPABASE_URL;
 const SUPABASE_SERVICE_ROLE_KEY = process.env.SUPABASE_SERVICE_ROLE_KEY;
+const DEBUG = process.env.GC_DEBUG === "1";
 
 if (!ORG_ID || !SUPABASE_URL || !SUPABASE_SERVICE_ROLE_KEY) {
-  console.error("Missing required environment variables: GC_ORG_ID, SUPABASE_URL, SUPABASE_SERVICE_ROLE_KEY");
+  console.error(
+    "Missing required environment variables: GC_ORG_ID, SUPABASE_URL, SUPABASE_SERVICE_ROLE_KEY"
+  );
   process.exit(1);
 }
 
@@ -37,22 +45,22 @@ const supabase = createClient(SUPABASE_URL, SUPABASE_SERVICE_ROLE_KEY, {
 // ---------------------------------------------------------------------------
 
 function parseStat(value) {
-  if (value === null || value === undefined || value === "" || value === "—" || value === "-") return null;
+  if (value === null || value === undefined || value === "" || value === "—" || value === "-")
+    return null;
   const n = Number(String(value).replace(/,/g, "").trim());
   return isNaN(n) ? null : n;
 }
 
 function parseAvg(value) {
-  if (value === null || value === undefined || value === "" || value === "—" || value === "-") return null;
+  if (value === null || value === undefined || value === "" || value === "—" || value === "-")
+    return null;
   const s = String(value).trim();
-  // Handle both ".350" and "0.350" formats
   const n = parseFloat(s.startsWith(".") ? "0" + s : s);
   return isNaN(n) ? null : n;
 }
 
-// Try to find player stats arrays inside any JSON response from GC
+// Scan any JSON response from GC for an array that looks like player stats
 function extractStatsFromApiResponse(url, data) {
-  // Candidate arrays to check
   const candidates = [];
 
   if (Array.isArray(data)) {
@@ -61,7 +69,6 @@ function extractStatsFromApiResponse(url, data) {
     for (const key of ["players", "stats", "data", "results", "leaderboard", "batting", "items"]) {
       if (Array.isArray(data[key])) candidates.push(data[key]);
     }
-    // Also check one level deeper
     for (const val of Object.values(data)) {
       if (Array.isArray(val)) candidates.push(val);
     }
@@ -70,15 +77,22 @@ function extractStatsFromApiResponse(url, data) {
   for (const arr of candidates) {
     if (arr.length === 0) continue;
     const sample = arr[0];
+    if (typeof sample !== "object" || !sample) continue;
     const keys = Object.keys(sample).map((k) => k.toLowerCase());
 
-    const hasName = keys.some((k) => k.includes("name") || k.includes("player") || k === "first_name");
+    const hasName = keys.some(
+      (k) => k.includes("name") || k.includes("player") || k === "first_name"
+    );
     const hasBatting = keys.some((k) =>
-      ["avg", "batting_average", "ab", "at_bat", "rbi", "hr", "home_run"].some((s) => k.includes(s))
+      ["avg", "batting_average", "ab", "at_bat", "rbi", "hr", "home_run"].some((s) =>
+        k.includes(s)
+      )
     );
 
     if (hasName && hasBatting) {
-      console.log(`  → Found player stats array (${arr.length} rows) at key in response from: ${url}`);
+      console.log(
+        `  → API: found player stats array (${arr.length} rows) from: ${url}`
+      );
       return arr;
     }
   }
@@ -86,10 +100,8 @@ function extractStatsFromApiResponse(url, data) {
   return null;
 }
 
-// Map a raw API object to our DB schema (handles multiple GC API shapes)
 function mapApiRowToStats(row) {
   const k = (key) => {
-    // Case-insensitive key lookup
     const found = Object.keys(row).find((k) => k.toLowerCase() === key.toLowerCase());
     return found !== undefined ? row[found] : undefined;
   };
@@ -103,9 +115,7 @@ function mapApiRowToStats(row) {
 
   if (!playerName) return null;
 
-  // Stats may be nested under "batting" or flat
   const batting = k("batting") || k("stats") || k("battingStats") || row;
-
   const bk = (key) => {
     const found = Object.keys(batting).find((k) => k.toLowerCase() === key.toLowerCase());
     return found !== undefined ? batting[found] : undefined;
@@ -131,88 +141,122 @@ function mapApiRowToStats(row) {
   };
 }
 
-// Extract stats from the rendered DOM table as a fallback
+// ---------------------------------------------------------------------------
+// DOM extraction — handles <table>, ARIA tables, and GC div-based grids
+// ---------------------------------------------------------------------------
+
 async function extractFromDom(page) {
-  console.log("  Attempting DOM table extraction...");
+  console.log("  Attempting DOM extraction (table + div strategies)...");
 
   return page.evaluate(() => {
-    // Try standard <table> first
-    const tables = Array.from(document.querySelectorAll("table"));
+    const STAT_HEADERS = new Set(["GP","PA","AB","AVG","OBP","OPS","SLG","H","1B","2B","3B","HR","RBI"]);
 
-    // Also try ARIA role="grid" / role="table"
-    const roleGrids = Array.from(document.querySelectorAll('[role="grid"],[role="table"]'));
-    const allTables = [...tables, ...roleGrids];
+    // ── Strategy A: standard <table> or ARIA role table ────────────────────
+    const tableCandidates = [
+      ...document.querySelectorAll("table"),
+      ...document.querySelectorAll('[role="grid"],[role="table"]'),
+    ];
 
-    for (const table of allTables) {
-      // Get headers
+    for (const table of tableCandidates) {
       const headerCells = Array.from(
-        table.querySelectorAll("thead th, thead td, [role='columnheader'], [role='rowheader']")
+        table.querySelectorAll(
+          "thead th, thead td, [role='columnheader'], [role='rowheader']"
+        )
       );
       const headers = headerCells.map((c) => c.textContent?.trim().toUpperCase() ?? "");
 
-      // Check if this looks like a batting stats table
-      const hasAVG = headers.some((h) => h === "AVG");
-      const hasAB = headers.some((h) => h === "AB");
-      if (!hasAVG || !hasAB) continue;
+      if (!headers.some((h) => h === "AVG") || !headers.some((h) => h === "AB")) continue;
 
-      console.log("Found batting stats table with headers:", headers.join(", "));
-
-      // Map column names to indices
-      const colMap = {};
-      headers.forEach((h, i) => {
-        colMap[h] = i;
-      });
-
+      const colMap = Object.fromEntries(headers.map((h, i) => [h, i]));
       const COL = {
         player: colMap["PLAYER"] ?? colMap["NAME"] ?? 0,
-        gp: colMap["GP"] ?? -1,
-        pa: colMap["PA"] ?? -1,
-        ab: colMap["AB"] ?? -1,
-        avg: colMap["AVG"] ?? -1,
-        obp: colMap["OBP"] ?? -1,
-        ops: colMap["OPS"] ?? -1,
-        slg: colMap["SLG"] ?? -1,
-        h: colMap["H"] ?? -1,
-        singles: colMap["1B"] ?? -1,
-        doubles: colMap["2B"] ?? -1,
-        triples: colMap["3B"] ?? -1,
-        hr: colMap["HR"] ?? -1,
-        rbi: colMap["RBI"] ?? -1,
-        team: colMap["TEAM"] ?? -1,
+        team:   colMap["TEAM"] ?? -1,
+        gp: colMap["GP"] ?? -1, pa: colMap["PA"] ?? -1, ab: colMap["AB"] ?? -1,
+        avg: colMap["AVG"] ?? -1, obp: colMap["OBP"] ?? -1,
+        ops: colMap["OPS"] ?? -1, slg: colMap["SLG"] ?? -1,
+        h: colMap["H"] ?? -1, singles: colMap["1B"] ?? -1,
+        doubles: colMap["2B"] ?? -1, triples: colMap["3B"] ?? -1,
+        hr: colMap["HR"] ?? -1, rbi: colMap["RBI"] ?? -1,
       };
 
-      const rows = Array.from(table.querySelectorAll("tbody tr, [role='row']:not(:has([role='columnheader']))"));
+      const dataRows = Array.from(
+        table.querySelectorAll("tbody tr, [role='row']:not(:has([role='columnheader']))")
+      );
       const stats = [];
 
-      for (const row of rows) {
+      for (const row of dataRows) {
         const cells = Array.from(row.querySelectorAll("td, [role='cell']"));
         if (cells.length < 5) continue;
-
-        const text = (idx) => (idx >= 0 && idx < cells.length ? cells[idx]?.textContent?.trim() ?? "" : "");
-
-        const playerName = text(COL.player);
-        if (!playerName) continue;
-
-        stats.push({
-          player_name: playerName,
-          team_name: text(COL.team) || null,
-          gp: parseInt(text(COL.gp)) || 0,
-          pa: parseInt(text(COL.pa)) || 0,
-          ab: parseInt(text(COL.ab)) || 0,
-          avg_raw: text(COL.avg),
-          obp_raw: text(COL.obp),
-          slg_raw: text(COL.slg),
-          ops_raw: text(COL.ops),
-          h: parseInt(text(COL.h)) || 0,
-          singles: parseInt(text(COL.singles)) || 0,
-          doubles: parseInt(text(COL.doubles)) || 0,
-          triples: parseInt(text(COL.triples)) || 0,
-          hr: parseInt(text(COL.hr)) || 0,
-          rbi: parseInt(text(COL.rbi)) || 0,
+        const t = (idx) => (idx >= 0 && idx < cells.length ? cells[idx]?.textContent?.trim() ?? "" : "");
+        const name = t(COL.player);
+        if (!name) continue;
+        stats.push({ player_name: name, team_name: t(COL.team) || null,
+          gp: parseInt(t(COL.gp)) || 0, pa: parseInt(t(COL.pa)) || 0, ab: parseInt(t(COL.ab)) || 0,
+          avg_raw: t(COL.avg), obp_raw: t(COL.obp), slg_raw: t(COL.slg), ops_raw: t(COL.ops),
+          h: parseInt(t(COL.h)) || 0, singles: parseInt(t(COL.singles)) || 0,
+          doubles: parseInt(t(COL.doubles)) || 0, triples: parseInt(t(COL.triples)) || 0,
+          hr: parseInt(t(COL.hr)) || 0, rbi: parseInt(t(COL.rbi)) || 0,
         });
       }
 
-      return stats;
+      if (stats.length > 0) {
+        console.log(`Strategy A: extracted ${stats.length} rows from <table>/<role=table>`);
+        return stats;
+      }
+    }
+
+    // ── Strategy B: div-based grid — find the header row by stat labels ─────
+    // Walk every element looking for one whose direct children spell out the
+    // batting column headers (GC uses custom React components with divs).
+    const allElements = Array.from(document.querySelectorAll("div, ul, section"));
+
+    for (const el of allElements) {
+      const children = Array.from(el.children);
+      if (children.length < 8) continue; // need at least Player + 7 stat cols
+
+      const childTexts = children.map((c) => c.textContent?.trim().toUpperCase() ?? "");
+      const statCount = childTexts.filter((t) => STAT_HEADERS.has(t)).length;
+      if (statCount < 6) continue; // must have ≥6 of our known stat headers
+
+      // Found the header row — now find its parent container and look for sibling rows
+      const container = el.parentElement;
+      if (!container) continue;
+
+      const colMap = Object.fromEntries(childTexts.map((h, i) => [h, i]));
+      // "Player" may appear as first child with different text — use index 0
+      const COL = {
+        player: 0,
+        team:   colMap["TEAM"] ?? -1,
+        gp: colMap["GP"] ?? -1, pa: colMap["PA"] ?? -1, ab: colMap["AB"] ?? -1,
+        avg: colMap["AVG"] ?? -1, obp: colMap["OBP"] ?? -1,
+        ops: colMap["OPS"] ?? -1, slg: colMap["SLG"] ?? -1,
+        h: colMap["H"] ?? -1, singles: colMap["1B"] ?? -1,
+        doubles: colMap["2B"] ?? -1, triples: colMap["3B"] ?? -1,
+        hr: colMap["HR"] ?? -1, rbi: colMap["RBI"] ?? -1,
+      };
+
+      const sibs = Array.from(container.children).filter((s) => s !== el);
+      const stats = [];
+
+      for (const sib of sibs) {
+        const cells = Array.from(sib.children);
+        if (cells.length < children.length - 2) continue;
+        const t = (idx) => (idx >= 0 && idx < cells.length ? cells[idx]?.textContent?.trim() ?? "" : "");
+        const name = t(COL.player);
+        if (!name || STAT_HEADERS.has(name.toUpperCase())) continue;
+        stats.push({ player_name: name, team_name: t(COL.team) || null,
+          gp: parseInt(t(COL.gp)) || 0, pa: parseInt(t(COL.pa)) || 0, ab: parseInt(t(COL.ab)) || 0,
+          avg_raw: t(COL.avg), obp_raw: t(COL.obp), slg_raw: t(COL.slg), ops_raw: t(COL.ops),
+          h: parseInt(t(COL.h)) || 0, singles: parseInt(t(COL.singles)) || 0,
+          doubles: parseInt(t(COL.doubles)) || 0, triples: parseInt(t(COL.triples)) || 0,
+          hr: parseInt(t(COL.hr)) || 0, rbi: parseInt(t(COL.rbi)) || 0,
+        });
+      }
+
+      if (stats.length > 0) {
+        console.log(`Strategy B: extracted ${stats.length} rows from div-grid`);
+        return stats;
+      }
     }
 
     return [];
@@ -239,55 +283,61 @@ async function main() {
   let apiStats = null;
 
   page.on("response", async (response) => {
-    if (apiStats) return; // already found
+    if (apiStats) return;
     const url = response.url();
     if (!url.includes("gc.com")) return;
-
     const ct = response.headers()["content-type"] ?? "";
     if (!ct.includes("json")) return;
 
     try {
       const json = await response.json();
       const found = extractStatsFromApiResponse(url, json);
-      if (found && found.length > 0) {
-        apiStats = found;
-      }
+      if (found && found.length > 0) apiStats = found;
     } catch {
-      // ignore non-JSON or parse errors
+      /* ignore */
     }
   });
 
-  // Navigate and wait for the app to load data
   console.log("Opening GC stats page...");
   try {
     await page.goto(GC_STATS_URL, { waitUntil: "networkidle", timeout: 60000 });
   } catch (err) {
-    console.warn(`  Page load warning: ${err.message} — continuing anyway`);
+    console.warn(`  Page load warning: ${err.message} — continuing`);
   }
 
-  // Give React extra time to render and fire API calls
-  await page.waitForTimeout(3000);
+  // Give React extra time to render
+  await page.waitForTimeout(4000);
 
-  // Check if the page shows "No batting stats" — if so, nothing to sync
-  const pageText = await page.evaluate(() => document.body.innerText);
+  // Check page state
+  const pageText = await page.evaluate(() => document.body.innerText ?? "");
   const hasNoStats =
     pageText.toLowerCase().includes("no batting stats") ||
     pageText.toLowerCase().includes("no stats at this time");
 
+  console.log(`  Page rendered ${pageText.length} chars of text.`);
+  if (hasNoStats) console.log("  GC page shows: no batting stats.");
+  if (apiStats)   console.log(`  API interception: ${apiStats.length} records found.`);
+
+  // Early exit when GC explicitly says there are no stats
   if (hasNoStats && !apiStats) {
-    console.log("ℹ️  GC reports no batting stats yet — nothing to sync.");
+    console.log("\nℹ️  No batting stats in GameChanger yet — nothing to sync.");
+
+    if (DEBUG) {
+      await page.screenshot({ path: "gc-stats-debug.png", fullPage: true });
+      console.log("  Debug screenshot saved: gc-stats-debug.png");
+    }
+
     await browser.close();
     process.exit(0);
   }
 
-  // ── Strategy 2: DOM scraping fallback ─────────────────────────────────────
+  // ── Strategy 2 / 3: DOM extraction ───────────────────────────────────────
   let rows = [];
 
   if (apiStats && apiStats.length > 0) {
-    console.log(`  API interception found ${apiStats.length} player records.`);
     rows = apiStats.map(mapApiRowToStats).filter(Boolean);
+    console.log(`  Mapped ${rows.length} valid rows from API data.`);
   } else {
-    console.log("  No API response captured — falling back to DOM extraction.");
     const domRows = await extractFromDom(page);
     if (domRows.length > 0) {
       rows = domRows.map((r) => ({
@@ -298,22 +348,32 @@ async function main() {
         ops: parseAvg(r.ops_raw),
         synced_at: new Date().toISOString(),
       }));
-      // Remove raw string fields
       rows = rows.map(({ avg_raw, obp_raw, slg_raw, ops_raw, ...rest }) => rest);
     }
+  }
+
+  // Always save a debug screenshot when rows = 0 (extraction failed but page has content)
+  // Also save when GC_DEBUG=1
+  if (rows.length === 0 || DEBUG) {
+    await page.screenshot({ path: "gc-stats-debug.png", fullPage: true });
+    // Dump the first 4000 chars of visible text so we can see what GC rendered
+    const snippet = pageText.slice(0, 4000);
+    writeFileSync("gc-stats-page-text.txt", snippet);
+    console.log("  Debug files saved: gc-stats-debug.png, gc-stats-page-text.txt");
+    console.log("  Page text snippet:\n---\n" + snippet.slice(0, 800) + "\n---");
   }
 
   await browser.close();
 
   if (rows.length === 0) {
-    console.log("⚠️  No player stats extracted — skipping DB write.");
+    console.log("\n⚠️  No player stats extracted — skipping DB write.");
+    console.log("  Check the gc-stats-debug.png artifact to see what GC rendered.");
     process.exit(0);
   }
 
-  console.log(`\n✅ Extracted ${rows.length} player stat rows. Writing to Supabase...\n`);
+  console.log(`\n✅ Extracted ${rows.length} player rows. Writing to Supabase...`);
 
-  // ── Write to Supabase ──────────────────────────────────────────────────────
-  // Upsert: update all fields on conflict (player_name + team_name unique)
+  // Upsert all rows
   const { error } = await supabase.from("player_batting_stats").upsert(rows, {
     onConflict: "player_name,team_name",
     ignoreDuplicates: false,
@@ -324,22 +384,17 @@ async function main() {
     process.exit(1);
   }
 
-  // Remove any players no longer in GC (left the org)
+  // Prune players no longer in GC
   const currentNames = rows.map((r) => r.player_name);
-  const { error: deleteError } = await supabase
+  await supabase
     .from("player_batting_stats")
     .delete()
     .not("player_name", "in", `(${currentNames.map((n) => `"${n}"`).join(",")})`);
 
-  if (deleteError) {
-    // Non-fatal — old players just stay in the table
-    console.warn("  Could not prune stale players:", deleteError.message);
-  }
-
-  console.log(`🏆 Sync complete — ${rows.length} players updated in DB.`);
+  console.log(`\n🏆 Sync complete — ${rows.length} players updated.`);
   rows.forEach((r) => {
     const avg = r.avg !== null ? r.avg.toFixed(3).replace(/^0/, "") : "---";
-    console.log(`   ${r.player_name.padEnd(25)} ${r.team_name ?? "no team"} | AVG ${avg} | HR ${r.hr} | RBI ${r.rbi}`);
+    console.log(`   ${r.player_name.padEnd(26)} ${String(r.team_name ?? "—").padEnd(22)} AVG ${avg}  HR ${r.hr}  RBI ${r.rbi}`);
   });
 }
 
