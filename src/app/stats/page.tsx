@@ -99,7 +99,7 @@ export default async function StatsPage() {
                       <table>
                         <thead>
                           <tr>
-                            <th>Player</th>
+                            <th style={{ position: "sticky", left: 0, zIndex: 2, background: "var(--surface-alt)" }}>Player</th>
                             <th title="Games Played">GP</th>
                             <th title="Plate Appearances">PA</th>
                             <th title="At Bats">AB</th>
@@ -135,7 +135,7 @@ export default async function StatsPage() {
                         <tbody>
                           {byTeam.get(team)!.map((row, i) => (
                             <tr key={i}>
-                              <td style={{ fontWeight: 600 }}>{row.player_name}</td>
+                              <td style={{ fontWeight: 600, position: "sticky", left: 0, zIndex: 1, background: "var(--surface-alt)" }}>{row.player_name}</td>
                               <td>{fmtInt(row.gp)}</td>
                               <td>{fmtInt(row.pa)}</td>
                               <td>{fmtInt(row.ab)}</td>
