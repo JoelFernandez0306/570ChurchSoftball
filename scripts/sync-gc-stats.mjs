@@ -252,15 +252,11 @@ async function discoverGameUrls(page, scheduleUrl) {
     console.log(`    [${date.slice(0,10)}] ${opp} — status: ${status}`);
   }
 
-  const completedGames = scheduleData.filter(item => {
-    const gs = item.game_stream;
-    if (!gs) return false;
-    const s = gs.game_status ?? "";
-    // Accept any post-game status GC might use
-    return /completed|final|official|post.?game|ended|closed/i.test(s);
-  });
+  // Include all games — game_stream is often null for this team type.
+  // The scraper handles unplayed games gracefully (no Batting tab = skipped).
+  const completedGames = scheduleData.filter(item => item.event?.id);
 
-  console.log(`  Found ${completedGames.length} completed game(s) out of ${scheduleData.length} total.`);
+  console.log(`  Scraping ${completedGames.length} game(s) out of ${scheduleData.length} total.`);
 
   return completedGames.map(item => `${baseUrl}/schedule/${item.event.id}/game-stats`);
 }
