@@ -45,3 +45,11 @@ next-env.d.ts
 
 # local IDE/MCP config (can contain tokens)
 .cursor/
+
+# GC saved session (contains auth cookies — never commit)
+gc-session.json
+gc-game-debug.png
+gc-game-api-responses.json
+gc-stats-debug.png
+gc-stats-page-text.txt
+gc-login-debug.png
