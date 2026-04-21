@@ -348,11 +348,22 @@ async function main() {
   });
   const page = await context.newPage();
 
-  if (page.url().includes("/login")) {
-    console.error("❌ Session expired. Run: node scripts/gc-save-session.mjs");
+  // ── Verify session is still valid ────────────────────────────────────────
+  console.log("  Verifying session...");
+  await page.goto("https://web.gc.com", { waitUntil: "domcontentloaded", timeout: 30000 });
+  await page.waitForTimeout(2000);
+  const homeUrl = page.url();
+  const homeText = await page.evaluate(() => document.body.innerText.slice(0, 200));
+  if (homeUrl.includes("/login") || homeUrl.includes("/sign-up") ||
+      /enter your email|join or sign in/i.test(homeText)) {
+    console.error("❌ GC session expired — cookies no longer valid.");
+    console.error("   Refresh locally:  node scripts/gc-save-session.mjs");
+    console.error("   Then update the GC_SESSION GitHub secret.");
+    await page.screenshot({ path: "gc-stats-debug.png", fullPage: false });
     await browser.close();
     process.exit(1);
   }
+  console.log("  ✓ Session valid\n");
 
   // ── Discover completed games ───────────────────────────────────────────────
   const gameUrls = await discoverGameUrls(page, GC_TEAM_URL);
