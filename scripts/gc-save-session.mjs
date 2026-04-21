@@ -55,13 +55,39 @@ async function main() {
     process.exit(1);
   }
 
-  // Save session — cookies only (drop localStorage to keep file small for GitHub Secrets)
+  // Save session: all cookies + auth-critical localStorage only
+  // GC is a React SPA — it reads JWT tokens from localStorage to decide if you're logged in.
+  // We filter out cached game/schedule data (makes the file huge) and keep only auth items.
   const storageState = await context.storageState();
-  const slim = { cookies: storageState.cookies, origins: [] };
-  writeFileSync("gc-session.json", JSON.stringify(slim, null, 2));
+  const AUTH_KEYS = /token|auth|jwt|user|session|credential|access|refresh|cognito|identity|gc_|persist/i;
+
+  const slimOrigins = storageState.origins
+    .map(origin => ({
+      origin: origin.origin,
+      localStorage: (origin.localStorage ?? []).filter(item => AUTH_KEYS.test(item.name)),
+    }))
+    .filter(o => o.localStorage.length > 0);
+
+  const slim = { cookies: storageState.cookies, origins: slimOrigins };
+  const json = JSON.stringify(slim, null, 2);
+  writeFileSync("gc-session.json", json);
 
   const cookieCount = slim.cookies?.length ?? 0;
-  console.log(`\n✓ Session saved — gc-session.json (${cookieCount} cookies)`);
+  const authItemCount = slimOrigins.reduce((n, o) => n + o.localStorage.length, 0);
+  const sizeKB = (json.length / 1024).toFixed(1);
+  console.log(`\n✓ Session saved — gc-session.json`);
+  console.log(`  ${cookieCount} cookies, ${authItemCount} auth localStorage items, ${sizeKB} KB total`);
+  if (authItemCount > 0) {
+    console.log(`  Auth keys saved:`);
+    for (const o of slimOrigins) {
+      for (const item of o.localStorage) {
+        console.log(`    [${o.origin}] ${item.name} (${item.value.length} chars)`);
+      }
+    }
+  } else {
+    console.log(`  ⚠️  No auth localStorage items found — only cookies saved.`);
+    console.log(`     Game stats pages may not load correctly.`);
+  }
   console.log(`  Logged in as: ${currentUrl}`);
 
   await browser.close();
