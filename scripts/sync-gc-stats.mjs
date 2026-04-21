@@ -348,14 +348,20 @@ async function main() {
   });
   const page = await context.newPage();
 
-  // ── Verify session is still valid ────────────────────────────────────────
+  // ── Verify session by loading the team schedule page ─────────────────────
   console.log("  Verifying session...");
-  await page.goto("https://web.gc.com", { waitUntil: "domcontentloaded", timeout: 30000 });
-  await page.waitForTimeout(2000);
-  const homeUrl = page.url();
-  const homeText = await page.evaluate(() => document.body.innerText.slice(0, 200));
-  if (homeUrl.includes("/login") || homeUrl.includes("/sign-up") ||
-      /enter your email|join or sign in/i.test(homeText)) {
+  try {
+    await page.goto(GC_TEAM_URL, { waitUntil: "domcontentloaded", timeout: 60000 });
+  } catch (e) {
+    console.warn("  Schedule load warning:", e.message);
+  }
+  await page.waitForTimeout(3000);
+  const verifyUrl = page.url();
+  const verifyText = await page.evaluate(() => document.body.innerText.slice(0, 500));
+  console.log(`  Verify URL: ${verifyUrl}`);
+  // GC shows the login form inline (URL stays the same) — detect by checking
+  // for the email input prompt which only appears when NOT logged in
+  if (/enter your email to join or sign in/i.test(verifyText)) {
     console.error("❌ GC session expired — cookies no longer valid.");
     console.error("   Refresh locally:  node scripts/gc-save-session.mjs");
     console.error("   Then update the GC_SESSION GitHub secret.");
