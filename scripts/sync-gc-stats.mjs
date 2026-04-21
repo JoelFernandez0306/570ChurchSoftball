@@ -419,9 +419,23 @@ async function main() {
   // GC shows the login form inline (URL stays the same) — detect by checking
   // for the email input prompt which only appears when NOT logged in
   if (/enter your email to join or sign in/i.test(verifyText)) {
-    console.error("❌ GC session expired — cookies no longer valid.");
-    console.error("   Refresh locally:  node scripts/gc-save-session.mjs");
-    console.error("   Then update the GC_SESSION GitHub secret.");
+    console.error("");
+    console.error("════════════════════════════════════════════════════════");
+    console.error("  ❌  GC SESSION EXPIRED — STATS SYNC FAILED");
+    console.error("════════════════════════════════════════════════════════");
+    console.error("  The GameChanger login session is no longer valid.");
+    console.error("  Stats have NOT been updated.");
+    console.error("");
+    console.error("  To fix (takes ~2 minutes):");
+    console.error("  1. On your Mac, run:");
+    console.error("       node scripts/gc-save-session.mjs");
+    console.error("  2. Log in to GameChanger when Chrome opens, then press Enter.");
+    console.error("  3. Run:");
+    console.error("       base64 -i gc-session.json | tr -d '\\n' > gc-session-secret.txt");
+    console.error("       cat gc-session-secret.txt | pbcopy");
+    console.error("  4. Go to GitHub → repo → Settings → Secrets → GC_SESSION → update it.");
+    console.error("  5. Re-run the workflow from the Actions tab.");
+    console.error("════════════════════════════════════════════════════════");
     await page.screenshot({ path: "gc-stats-debug.png", fullPage: false });
     await browser.close();
     process.exit(1);
