@@ -635,14 +635,20 @@ async function main() {
     }
   }
 
-  // Remove rows for THIS phase that are no longer seen (player removed from GC).
-  // Never touch the other phase's rows.
-  const currentKeys = aggregated.map(r => r.player_name);
-  await supabase
-    .from("player_batting_stats")
-    .delete()
-    .eq("season_type", SYNC_PHASE)
-    .not("player_name", "in", `(${currentKeys.map(n => `"${n}"`).join(",")})`);
+  // Remove stale rows only for teams that were actually scraped this run.
+  // Teams entered manually (not on GC) are never touched.
+  const scrapedTeams = [...new Set(aggregated.map(r => r.team_name).filter(Boolean))];
+  for (const team of scrapedTeams) {
+    const teamPlayerNames = aggregated
+      .filter(r => r.team_name === team)
+      .map(r => r.player_name);
+    await supabase
+      .from("player_batting_stats")
+      .delete()
+      .eq("season_type", SYNC_PHASE)
+      .eq("team_name", team)
+      .not("player_name", "in", `(${teamPlayerNames.map(n => `"${n}"`).join(",")})`);
+  }
 
   console.log(`\n🏆 Sync complete — ${aggregated.length} players updated.`);
   aggregated
