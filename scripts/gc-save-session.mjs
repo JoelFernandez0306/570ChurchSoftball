@@ -55,11 +55,12 @@ async function main() {
     process.exit(1);
   }
 
-  // Save session
+  // Save session — cookies only (drop localStorage to keep file small for GitHub Secrets)
   const storageState = await context.storageState();
-  writeFileSync("gc-session.json", JSON.stringify(storageState, null, 2));
+  const slim = { cookies: storageState.cookies, origins: [] };
+  writeFileSync("gc-session.json", JSON.stringify(slim, null, 2));
 
-  const cookieCount = storageState.cookies?.length ?? 0;
+  const cookieCount = slim.cookies?.length ?? 0;
   console.log(`\n✓ Session saved — gc-session.json (${cookieCount} cookies)`);
   console.log(`  Logged in as: ${currentUrl}`);
 
