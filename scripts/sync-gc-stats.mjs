@@ -332,11 +332,19 @@ async function main() {
   const session = loadSession();
   console.log(`  Session: ${session.cookies?.length ?? 0} cookies\n`);
 
-  const browser = await chromium.launch({ headless: true });
+  const browser = await chromium.launch({
+    headless: true,
+    args: ["--disable-blink-features=AutomationControlled", "--no-sandbox"],
+  });
   const context = await browser.newContext({
     storageState: session,
-    userAgent: "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
+    userAgent: "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36",
     viewport: { width: 2400, height: 900 },
+  });
+  // Hide headless signals GC might use to detect automation
+  await context.addInitScript(() => {
+    Object.defineProperty(navigator, "webdriver", { get: () => undefined });
+    Object.defineProperty(navigator, "plugins", { get: () => [1, 2, 3] });
   });
   const page = await context.newPage();
 
@@ -377,20 +385,32 @@ async function main() {
     console.log(`     ${gameUrl}`);
 
     try {
-      await page.goto(gameUrl, { waitUntil: "networkidle", timeout: 60000 });
+      await page.goto(gameUrl, { waitUntil: "domcontentloaded", timeout: 60000 });
     } catch (e) {
       console.warn("    Load warning:", e.message);
     }
-    await page.waitForTimeout(2000);
+    await page.waitForTimeout(4000);
 
-    // Wait for Batting tab to appear
-    try {
-      await page.waitForSelector(
-        'button:has-text("Batting"), [role="tab"]:has-text("Batting")',
-        { timeout: 12000 }
-      );
-    } catch {
-      console.warn("    Batting tab not found — skipping game.");
+    // Log current URL so we know if we got redirected to login
+    const landedUrl = page.url();
+    console.log(`    Landed: ${landedUrl}`);
+    if (landedUrl.includes("/login") || landedUrl.includes("/sign-up")) {
+      console.error("    ❌ Redirected to login — session may be expired. Skipping.");
+      await page.screenshot({ path: "gc-stats-debug.png", fullPage: false });
+      continue;
+    }
+
+    // Wait for Batting tab to appear (try both capitalizations GC uses)
+    const battingFound = await page.locator(
+      'button, [role="tab"], [role="button"]'
+    ).filter({ hasText: /^batting$/i }).first().waitFor({ timeout: 15000 }).then(() => true).catch(() => false);
+
+    if (!battingFound) {
+      console.warn("    Batting tab not found — saving debug screenshot and skipping.");
+      await page.screenshot({ path: "gc-stats-debug.png", fullPage: false });
+      // Log visible top-level text so we can diagnose in CI
+      const pageText = await page.evaluate(() => document.body.innerText.slice(0, 1000));
+      console.log("    Page text sample:", pageText.replace(/\n+/g, " | ").slice(0, 400));
       continue;
     }
 
