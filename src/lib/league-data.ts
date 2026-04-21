@@ -561,6 +561,24 @@ export interface BattingStatRow {
   triples: number;
   hr: number;
   rbi: number;
+  // Advanced stats
+  qab: number;
+  hhb: number;
+  ld: number;
+  fb: number;
+  gb: number;
+  babip: number | null;
+  ba_risp: number | null;
+  lob: number;
+  two_out_rbi: number;
+  xbh: number;
+  tb: number;
+  ps: number;
+  ps_pa: number | null;
+  two_s3: number;
+  six_plus: number;
+  gidp: number;
+  ci: number;
   synced_at: string;
 }
 
@@ -570,7 +588,7 @@ export async function loadBattingStats(): Promise<{ rows: BattingStatRow[]; sync
     const { data, error } = await supabase
       .schema("league")
       .from("player_batting_stats")
-      .select("player_name,team_name,gp,pa,ab,avg,obp,slg,ops,h,singles,doubles,triples,hr,rbi,synced_at")
+      .select("player_name,team_name,gp,pa,ab,avg,obp,slg,ops,h,singles,doubles,triples,hr,rbi,qab,hhb,ld,fb,gb,babip,ba_risp,lob,two_out_rbi,xbh,tb,ps,ps_pa,two_s3,six_plus,gidp,ci,synced_at")
       .order("avg", { ascending: false, nullsFirst: false });
 
     if (error) return { rows: [], syncedAt: null };

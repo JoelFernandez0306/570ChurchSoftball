@@ -62,8 +62,8 @@ async function extractCurrentTable(page) {
       "AB","R","H","RBI","BB","SO","HR","AVG","OBP","SLG","OPS",
       "1B","2B","3B","PA","GP","SF","SH","HBP","IBB","TB","K","E","LOB",
       // Advanced
-      "QAB","HHB","LD","FB","GB","BABIP","XBH","PS","PSA","2OUTRBI",
-      "BA/RISP","CS","SB","GIDP","PO","A",
+      "QAB","HHB","LD","FB","GB","BABIP","XBH","PS","PS/PA","2OUTRBI",
+      "BA/RISP","CS","SB","GIDP","PO","A","2S+3","6+","CI",
     ]);
 
     function tryExtractTable(root) {
@@ -197,28 +197,52 @@ async function main() {
   await page.waitForTimeout(2000);
   console.log(`  URL: ${page.url()}\n`);
 
-  // ── Step 1: Click GAME STATS tab ──────────────────────────────────────────
-  const clickedGameStats = await tryClick(page, "GAME STATS");
-  if (!clickedGameStats) await tryClick(page, "Game Stats");
-  console.log(`  Clicked: GAME STATS`);
+  // ── Step 1: Wait for game stats to be ready ───────────────────────────────
+  // The /game-stats URL already opens the stats view — no need to click GAME STATS.
+  // Wait until either "Batting" or "Back to Schedule" appears (confirms stats loaded).
+  try {
+    await page.waitForSelector(
+      'button:has-text("Batting"), [role="tab"]:has-text("Batting")',
+      { timeout: 10000 }
+    );
+  } catch {
+    // Fall back to clicking GAME STATS tab if Batting isn't immediately visible
+    const clickedGameStats = await tryClick(page, "GAME STATS");
+    if (!clickedGameStats) await tryClick(page, "Game Stats");
+    console.log(`  Clicked: GAME STATS`);
+    await page.waitForTimeout(2000);
+  }
 
-  // ── Step 2: Find team buttons ─────────────────────────────────────────────
-  await page.waitForTimeout(1500);
+  // Take an "entry" screenshot so we can see what loaded
+  await page.screenshot({ path: "gc-game-debug.png", fullPage: true });
+  console.log(`  Entry screenshot saved.`);
 
-  const teamButtons = await page.evaluate(() => {
-    // Look for the team toggle buttons (usually 2 side-by-side pill buttons)
+  // ── Step 2: Find team toggle buttons ─────────────────────────────────────
+  await page.waitForTimeout(1000);
+
+  const EXCLUDED_UI = new Set([
+    "BOX SCORE","GAME STATS","BATTING","PITCHING","FIELDING",
+    "STANDARD","ADVANCED","PLAYS","VIDEOS","RECAP","INSIGHTS",
+    "INFO","STARTING LINEUP","EDIT STATS","HOME","SCHEDULE",
+    "TEAM","STATS","OPPONENTS","TOOLS","GET THE APP","SIGN IN",
+    "SIGN UP","TRY FOR FREE","SUPPORT","ACCOUNT","SIGN OUT",
+    "BUY A TEAM PASS", "BACK TO SCHEDULE",
+  ]);
+
+  const teamButtons = await page.evaluate((excluded) => {
     const btns = Array.from(document.querySelectorAll("button"));
-    const teamBtns = btns.filter((b) => {
-      const text = b.textContent?.trim() ?? "";
-      return text.length > 3 && text.length < 60 &&
-        !["BOX SCORE","GAME STATS","BATTING","PITCHING","FIELDING",
-          "STANDARD","ADVANCED","PLAYS","VIDEOS","RECAP","INSIGHTS",
-          "INFO","STARTING LINEUP","Edit Stats"].includes(text.toUpperCase());
-    });
-    return teamBtns.map((b) => b.textContent?.trim() ?? "");
-  });
+    return btns
+      .map((b) => b.textContent?.trim() ?? "")
+      .filter((text) => {
+        if (text.length < 4 || text.length > 50) return false;
+        if (text.includes("@")) return false;             // email address
+        if (text.includes("Back to")) return false;       // nav breadcrumb
+        if (!/[a-zA-Z]{3}/.test(text)) return false;     // must have letters
+        if (excluded.includes(text.toUpperCase())) return false;
+        return true;
+      });
+  }, [...EXCLUDED_UI]);
 
-  // Filter to unique non-empty team names visible on the page
   const uniqueTeams = [...new Set(teamButtons.filter(Boolean))].slice(0, 2);
   console.log(`  Teams found: ${uniqueTeams.join(", ") || "(auto-detecting)"}\n`);
 
@@ -233,19 +257,20 @@ async function main() {
       if (clicked) console.log(`  Team: "${teamName}"`);
     }
 
-    // Click Batting sub-tab
-    await tryClick(page, "Batting");
-    console.log(`  Sub-tab: Batting`);
+    // Click Batting sub-tab and wait for it to settle
+    const clickedBatting = await tryClick(page, "Batting", 5000);
+    console.log(`  Sub-tab: Batting ${clickedBatting ? "✓" : "(not found)"}`);
+    await page.waitForTimeout(1500);
 
-    // Click Advanced sub-sub-tab
-    const clickedAdv = await tryClick(page, "Advanced");
+    // Click Advanced sub-sub-tab (only appears after Batting is selected)
+    const clickedAdv = await tryClick(page, "Advanced", 5000);
     if (clickedAdv) {
-      console.log(`  View: Advanced`);
+      console.log(`  View: Advanced ✓`);
     } else {
       console.log(`  View: Standard (Advanced not found)`);
     }
 
-    await page.waitForTimeout(1000);
+    await page.waitForTimeout(1500);
 
     // Extract the stats table now visible
     const tables = await extractCurrentTable(page);
@@ -260,10 +285,10 @@ async function main() {
     }
   }
 
-  // ── Screenshot + save ─────────────────────────────────────────────────────
-  await page.screenshot({ path: "gc-game-debug.png", fullPage: true });
+  // ── Final screenshot + save ───────────────────────────────────────────────
+  await page.screenshot({ path: "gc-game-debug-final.png", fullPage: true });
   writeFileSync("gc-game-api-responses.json", JSON.stringify(captured, null, 2));
-  console.log(`\n📸 gc-game-debug.png  |  📡 gc-game-api-responses.json (${captured.length} responses)\n`);
+  console.log(`\n📸 gc-game-debug-final.png  |  📡 gc-game-api-responses.json (${captured.length} responses)\n`);
 
   // ── Print results ─────────────────────────────────────────────────────────
   if (allResults.length === 0) {
