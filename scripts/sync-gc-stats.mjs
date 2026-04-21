@@ -3,23 +3,26 @@
  *
  * Authenticated per-game scraper:
  *   1. Loads GC session (gc-session.json or GC_SESSION base64 env var)
- *   2. Navigates to IC's schedule page to discover all completed games
- *   3. For each completed game, scrapes Advanced batting stats for BOTH teams
- *   4. Aggregates per-player season totals across all games
- *   5. Upserts to Supabase league.player_batting_stats
+ *   2. Navigates to each team's schedule page to discover games
+ *   3. Deduplicates games by game ID (same game appears on both teams' schedules)
+ *   4. For each game on/after GC_SEASON_START, scrapes batting stats for BOTH teams
+ *   5. Aggregates per-player season totals and upserts to Supabase
  *
  * Required env vars:
  *   SUPABASE_URL              — e.g. https://xxxx.supabase.co
  *   SUPABASE_SERVICE_ROLE_KEY — service role key
- *   GC_TEAM_URL               — IC schedule page URL
- *                               e.g. https://web.gc.com/teams/pse8HXYXmslZ/2026-summer-innovation-church-26/schedule
+ *   GC_TEAM_URLS              — comma-separated GC schedule page URLs for every team
+ *                               e.g. https://web.gc.com/teams/ABC/team-a/schedule,https://web.gc.com/teams/XYZ/team-b/schedule
+ *                               (also accepts legacy GC_TEAM_URL for a single team)
  *
  * Auth (one of):
  *   gc-session.json file  — created by: node scripts/gc-save-session.mjs
  *   GC_SESSION env var    — base64-encoded gc-session.json (used in CI)
  *
  * Optional:
- *   GC_DEBUG=1  — save a debug screenshot after each game scrape
+ *   GC_SEASON_START — YYYY-MM-DD cutoff; games before this date are skipped
+ *                     e.g. 2026-05-01  (set as a GitHub secret or env var)
+ *   GC_DEBUG=1      — save a debug screenshot after each game scrape
  */
 
 import { chromium } from "playwright";
@@ -28,14 +31,25 @@ import { writeFileSync, existsSync, readFileSync } from "fs";
 
 // ── Config ────────────────────────────────────────────────────────────────────
 
-const SUPABASE_URL             = process.env.SUPABASE_URL;
+const SUPABASE_URL              = process.env.SUPABASE_URL;
 const SUPABASE_SERVICE_ROLE_KEY = process.env.SUPABASE_SERVICE_ROLE_KEY;
-const GC_TEAM_URL              = process.env.GC_TEAM_URL ||
-  "https://web.gc.com/teams/pse8HXYXmslZ/2026-summer-innovation-church-26/schedule";
-const DEBUG = process.env.GC_DEBUG === "1";
+const DEBUG                     = process.env.GC_DEBUG === "1";
+
+// Accept comma-separated GC_TEAM_URLS or legacy single GC_TEAM_URL
+const GC_TEAM_URLS = (process.env.GC_TEAM_URLS || process.env.GC_TEAM_URL || "")
+  .split(",").map(u => u.trim()).filter(Boolean);
+
+// Optional season start cutoff — skip games before this date
+const GC_SEASON_START = process.env.GC_SEASON_START
+  ? new Date(process.env.GC_SEASON_START)
+  : null;
 
 if (!SUPABASE_URL || !SUPABASE_SERVICE_ROLE_KEY) {
   console.error("Missing: SUPABASE_URL, SUPABASE_SERVICE_ROLE_KEY");
+  process.exit(1);
+}
+if (GC_TEAM_URLS.length === 0) {
+  console.error("Missing: GC_TEAM_URLS (or GC_TEAM_URL) — at least one team schedule URL required");
   process.exit(1);
 }
 
@@ -204,6 +218,18 @@ async function extractAdvancedStats(page) {
 
 // ── Discover completed game URLs from IC's schedule page ─────────────────────
 
+// Extract the best available date from a schedule event item
+function getEventDate(item) {
+  const raw = item.event?.start_date_time
+    ?? item.event?.start_time
+    ?? item.event?.scheduled_time
+    ?? item.event?.date
+    ?? null;
+  if (!raw) return null;
+  const d = new Date(raw);
+  return isNaN(d.getTime()) ? null : d;
+}
+
 async function discoverGameUrls(page, scheduleUrl) {
   console.log(`  Navigating to schedule: ${scheduleUrl}`);
   let scheduleData = null;
@@ -243,22 +269,28 @@ async function discoverGameUrls(page, scheduleUrl) {
   // Build game-stats URLs from the schedule API data
   const baseUrl = scheduleUrl.replace(/\/schedule$/, "");
 
-  // Log all game statuses so we can see what GC returns
+  // Log each game with its date so we can verify the cutoff is working
   for (const item of scheduleData) {
-    const gs = item.game_stream;
-    const date = item.event?.start_date_time ?? "?";
-    const status = gs?.game_status ?? "(no game_stream)";
-    const opp = item.event?.title ?? item.event?.id ?? "?";
-    console.log(`    [${date.slice(0,10)}] ${opp} — status: ${status}`);
+    const gameDate = getEventDate(item);
+    const dateStr  = gameDate ? gameDate.toISOString().slice(0, 10) : "?";
+    const opp      = item.event?.title ?? item.event?.id ?? "?";
+    const skipped  = GC_SEASON_START && gameDate && gameDate < GC_SEASON_START ? " [SKIPPED — before season start]" : "";
+    console.log(`    [${dateStr}] ${opp}${skipped}`);
   }
 
-  // Include all games — game_stream is often null for this team type.
-  // The scraper handles unplayed games gracefully (no Batting tab = skipped).
-  const completedGames = scheduleData.filter(item => item.event?.id);
+  // Filter by season start cutoff if set; include games with unknown date
+  const eligibleGames = scheduleData.filter(item => {
+    if (!item.event?.id) return false;
+    if (GC_SEASON_START) {
+      const gameDate = getEventDate(item);
+      if (gameDate && gameDate < GC_SEASON_START) return false;
+    }
+    return true;
+  });
 
-  console.log(`  Scraping ${completedGames.length} game(s) out of ${scheduleData.length} total.`);
+  console.log(`  ${eligibleGames.length} eligible game(s) out of ${scheduleData.length} total.`);
 
-  return completedGames.map(item => `${baseUrl}/schedule/${item.event.id}/game-stats`);
+  return eligibleGames.map(item => `${baseUrl}/schedule/${item.event.id}/game-stats`);
 }
 
 // ── Per-player season aggregation ────────────────────────────────────────────
@@ -336,7 +368,8 @@ function aggregateStats(allGameRows) {
 
 async function main() {
   console.log(`\n🔄 Syncing GC stats from per-game pages`);
-  console.log(`   Team URL: ${GC_TEAM_URL}\n`);
+  console.log(`   Teams:        ${GC_TEAM_URLS.length} team URL(s)`);
+  console.log(`   Season start: ${GC_SEASON_START ? GC_SEASON_START.toISOString().slice(0,10) : "(no cutoff — all games)"}\n`);
 
   const session = loadSession();
   console.log(`  Session: ${session.cookies?.length ?? 0} cookies\n`);
@@ -357,10 +390,10 @@ async function main() {
   });
   const page = await context.newPage();
 
-  // ── Verify session by loading the team schedule page ─────────────────────
+  // ── Verify session by loading the first team schedule page ───────────────
   console.log("  Verifying session...");
   try {
-    await page.goto(GC_TEAM_URL, { waitUntil: "domcontentloaded", timeout: 60000 });
+    await page.goto(GC_TEAM_URLS[0], { waitUntil: "domcontentloaded", timeout: 60000 });
   } catch (e) {
     console.warn("  Schedule load warning:", e.message);
   }
@@ -380,16 +413,30 @@ async function main() {
   }
   console.log("  ✓ Session valid\n");
 
-  // ── Discover completed games ───────────────────────────────────────────────
-  const gameUrls = await discoverGameUrls(page, GC_TEAM_URL);
+  // ── Discover games from all team schedules, deduplicate by game ID ──────────
+  // The same game appears on both teams' schedule pages; key by the UUID in the URL.
+  const gameUrlByGameId = new Map();
+
+  for (const teamUrl of GC_TEAM_URLS) {
+    console.log(`\n  Team: ${teamUrl}`);
+    const urls = await discoverGameUrls(page, teamUrl);
+    for (const url of urls) {
+      const gameId = url.match(/\/schedule\/([^/]+)\/game-stats/)?.[1];
+      if (gameId && !gameUrlByGameId.has(gameId)) {
+        gameUrlByGameId.set(gameId, url);
+      }
+    }
+  }
+
+  const gameUrls = [...gameUrlByGameId.values()];
 
   if (gameUrls.length === 0) {
-    console.log("ℹ️  No completed games found — nothing to sync.");
+    console.log("\nℹ️  No eligible games found — nothing to sync.");
     await browser.close();
     process.exit(0);
   }
 
-  console.log(`\n  Games to scrape: ${gameUrls.length}`);
+  console.log(`\n  Games to scrape: ${gameUrls.length} (unique)`);
   gameUrls.forEach((u, i) => console.log(`    ${i + 1}. ${u}`));
 
   // ── Scrape each game ───────────────────────────────────────────────────────
