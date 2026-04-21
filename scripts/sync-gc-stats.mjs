@@ -242,9 +242,22 @@ async function discoverGameUrls(page, scheduleUrl) {
 
   // Build game-stats URLs from the schedule API data
   const baseUrl = scheduleUrl.replace(/\/schedule$/, "");
+
+  // Log all game statuses so we can see what GC returns
+  for (const item of scheduleData) {
+    const gs = item.game_stream;
+    const date = item.event?.start_date_time ?? "?";
+    const status = gs?.game_status ?? "(no game_stream)";
+    const opp = item.event?.title ?? item.event?.id ?? "?";
+    console.log(`    [${date.slice(0,10)}] ${opp} — status: ${status}`);
+  }
+
   const completedGames = scheduleData.filter(item => {
     const gs = item.game_stream;
-    return gs && (gs.game_status === "completed" || gs.game_status === "final");
+    if (!gs) return false;
+    const s = gs.game_status ?? "";
+    // Accept any post-game status GC might use
+    return /completed|final|official|post.?game|ended|closed/i.test(s);
   });
 
   console.log(`  Found ${completedGames.length} completed game(s) out of ${scheduleData.length} total.`);
