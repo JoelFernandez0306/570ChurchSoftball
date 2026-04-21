@@ -49,6 +49,9 @@ next-env.d.ts
 # GC saved session (contains auth cookies — never commit)
 gc-session.json
 gc-session-secret.txt
+
+# GC team URLs (contains team IDs — keep local only)
+gc-team-urls.txt
 gc-game-debug.png
 gc-game-api-responses.json
 gc-stats-debug.png
