@@ -85,7 +85,7 @@ export default async function StatsPage() {
                   byTeam.get(t)!.push(row);
                 }
                 return teamOrder.map(team => (
-                  <div key={team} style={{ marginBottom: "2rem" }}>
+                  <div key={team} style={{ marginBottom: "2rem", minWidth: 0 }}>
                     <h3 style={{
                       fontSize: "1.4rem",
                       fontWeight: 700,
