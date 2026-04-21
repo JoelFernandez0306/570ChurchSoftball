@@ -38,7 +38,8 @@ jobs:
         env:
           SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
           SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
-          GC_ORG_ID: ${{ secrets.GC_ORG_ID }}
+          GC_SESSION: ${{ secrets.GC_SESSION }}
+          GC_TEAM_URL: ${{ secrets.GC_TEAM_URL }}
           GC_DEBUG: ${{ github.event.inputs.debug || '0' }}
         run: node scripts/sync-gc-stats.mjs
 
