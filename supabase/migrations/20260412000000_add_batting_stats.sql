@@ -18,3 +18,5 @@ CREATE TABLE IF NOT EXISTS league.player_batting_stats (
   synced_at    TIMESTAMPTZ  NOT NULL DEFAULT NOW(),
   UNIQUE (player_name, team_name)
 );
+
+GRANT ALL ON TABLE league.player_batting_stats TO postgres, anon, authenticated, service_role;
