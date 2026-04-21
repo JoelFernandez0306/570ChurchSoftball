@@ -467,23 +467,41 @@ async function main() {
         await page.waitForTimeout(600);
       }
 
+      // ── Standard tab: H, 1B, 2B, 3B, HR, RBI, AVG, OBP, SLG, OPS ──────────
       await tryClick(page, "Batting", 6000);
       await page.waitForTimeout(1500);
+      await tryClick(page, "Standard", 6000);
+      await page.waitForTimeout(1500);
+      const standardRows = await extractAdvancedStats(page);
+
+      // ── Advanced tab: QAB, HHB, LD, FB, GB, BABIP, etc. ────────────────────
       await tryClick(page, "Advanced", 6000);
       await page.waitForTimeout(1500);
+      const advancedRows = await extractAdvancedStats(page);
 
-      const rows = await extractAdvancedStats(page);
+      // Merge by player name (advanced is authoritative for PA/AB when present)
+      const stdByPlayer = new Map(standardRows.map(r => [r["PLAYER"], r]));
+      const rows = advancedRows.length > 0 ? advancedRows : standardRows;
 
       if (rows.length > 0) {
         const inferredTeam = teamName ?? "Team";
-        console.log(`    ✓ ${inferredTeam}: ${rows.length} player rows`);
+        console.log(`    ✓ ${inferredTeam}: ${rows.length} players (std=${standardRows.length} adv=${advancedRows.length})`);
 
         for (const row of rows) {
+          const name = row["PLAYER"] ?? "";
+          const std = stdByPlayer.get(name) ?? {};
+
           allGameRows.push({
-            player_name:  row["PLAYER"] ?? "",
+            player_name:  name,
             team_name:    inferredTeam,
-            pa:           parseStat(row["PA"]),
-            ab:           parseStat(row["AB"]),
+            pa:           parseStat(row["PA"])  ?? parseStat(std["PA"]),
+            ab:           parseStat(row["AB"])  ?? parseStat(std["AB"]),
+            h:            parseStat(std["H"])   ?? 0,
+            singles:      parseStat(std["1B"])  ?? 0,
+            doubles:      parseStat(std["2B"])  ?? 0,
+            triples:      parseStat(std["3B"])  ?? 0,
+            hr:           parseStat(std["HR"])  ?? 0,
+            rbi:          parseStat(std["RBI"]) ?? 0,
             qab:          parseStat(row["QAB"]),
             hhb:          parseStat(row["HHB"]),
             ld:           parseStat(row["LD"]),
@@ -501,7 +519,6 @@ async function main() {
             six_plus:     parseStat(row["6+"]),
             gidp:         parseStat(row["GIDP"]),
             ci:           parseStat(row["CI"]),
-            h: 0, singles: 0, doubles: 0, triples: 0, hr: 0, rbi: 0,
           });
         }
       } else {
