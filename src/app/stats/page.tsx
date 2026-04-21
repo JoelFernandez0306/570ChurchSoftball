@@ -75,84 +75,106 @@ export default async function StatsPage() {
             </article>
           ) : (
             <>
-              <div className="table-wrap">
-                <table>
-                  <thead>
-                    <tr>
-                      <th>Player</th>
-                      <th>Team</th>
-                      <th title="Games Played">GP</th>
-                      <th title="Plate Appearances">PA</th>
-                      <th title="At Bats">AB</th>
-                      <th title="Quality At Bats">QAB</th>
-                      <th title="Hard Hit Balls">HHB</th>
-                      <th title="Line Drives">LD</th>
-                      <th title="Fly Balls">FB</th>
-                      <th title="Ground Balls">GB</th>
-                      <th title="Batting Average on Balls in Play">BABIP</th>
-                      <th title="Batting Average with Runners in Scoring Position">BA/RISP</th>
-                      <th title="Runners Left on Base">LOB</th>
-                      <th title="2-Out RBI">2OUTRBI</th>
-                      <th title="Extra-Base Hits">XBH</th>
-                      <th title="Total Bases">TB</th>
-                      <th title="Pitches Seen">PS</th>
-                      <th title="Pitches Seen per Plate Appearance">PS/PA</th>
-                      <th title="PA with 3+ pitches after 2 strikes">2S+3</th>
-                      <th title="Plate Appearances with 6+ Pitches">6+</th>
-                      <th title="Hit into Double Play">GIDP</th>
-                      <th title="Catcher's Interference">CI</th>
-                      <th title="Batting Average">AVG</th>
-                      <th title="On-Base Percentage">OBP</th>
-                      <th title="OPS">OPS</th>
-                      <th title="Slugging Percentage">SLG</th>
-                      <th title="Hits">H</th>
-                      <th title="Singles">1B</th>
-                      <th title="Doubles">2B</th>
-                      <th title="Triples">3B</th>
-                      <th title="Home Runs">HR</th>
-                      <th title="Runs Batted In">RBI</th>
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {rows.map((row, i) => (
-                      <tr key={i}>
-                        <td style={{ fontWeight: 600 }}>{row.player_name}</td>
-                        <td style={{ color: "var(--ink-soft)", fontSize: "0.88rem" }}>{row.team_name ?? "—"}</td>
-                        <td>{fmtInt(row.gp)}</td>
-                        <td>{fmtInt(row.pa)}</td>
-                        <td>{fmtInt(row.ab)}</td>
-                        <td>{fmtInt(row.qab)}</td>
-                        <td>{fmtInt(row.hhb)}</td>
-                        <td>{fmtInt(row.ld)}</td>
-                        <td>{fmtInt(row.fb)}</td>
-                        <td>{fmtInt(row.gb)}</td>
-                        <td>{fmtAvg(row.babip)}</td>
-                        <td>{fmtAvg(row.ba_risp)}</td>
-                        <td>{fmtInt(row.lob)}</td>
-                        <td>{fmtInt(row.two_out_rbi)}</td>
-                        <td>{fmtInt(row.xbh)}</td>
-                        <td>{fmtInt(row.tb)}</td>
-                        <td>{fmtInt(row.ps)}</td>
-                        <td>{fmtDec(row.ps_pa)}</td>
-                        <td>{fmtInt(row.two_s3)}</td>
-                        <td>{fmtInt(row.six_plus)}</td>
-                        <td>{fmtInt(row.gidp)}</td>
-                        <td>{fmtInt(row.ci)}</td>
-                        <td style={{ fontWeight: 650 }}>{fmtAvg(row.avg)}</td>
-                        <td>{fmtAvg(row.obp)}</td>
-                        <td>{fmtAvg(row.ops)}</td>
-                        <td>{fmtAvg(row.slg)}</td>
-                        <td>{fmtInt(row.h)}</td>
-                        <td>{fmtInt(row.singles)}</td>
-                        <td>{fmtInt(row.doubles)}</td>
-                        <td>{fmtInt(row.triples)}</td>
-                        <td>{fmtInt(row.hr)}</td>
-                        <td>{fmtInt(row.rbi)}</td>
-                      </tr>
-                    ))}
-                  </tbody>
-                </table>
-              </div>
+              {/* Group rows by team */}
+              {(() => {
+                const teamOrder: string[] = [];
+                const byTeam = new Map<string, typeof rows>();
+                for (const row of rows) {
+                  const t = row.team_name ?? "Unknown";
+                  if (!byTeam.has(t)) { byTeam.set(t, []); teamOrder.push(t); }
+                  byTeam.get(t)!.push(row);
+                }
+                return teamOrder.map(team => (
+                  <div key={team} style={{ marginBottom: "2rem" }}>
+                    <h3 style={{
+                      fontSize: "1.4rem",
+                      fontWeight: 700,
+                      padding: "0.6rem 0",
+                      borderBottom: "3px solid var(--accent, #2563eb)",
+                      marginBottom: "0.75rem",
+                    }}>
+                      {team}
+                    </h3>
+                    <div className="table-wrap">
+                      <table>
+                        <thead>
+                          <tr>
+                            <th>Player</th>
+                            <th title="Games Played">GP</th>
+                            <th title="Plate Appearances">PA</th>
+                            <th title="At Bats">AB</th>
+                            <th title="Quality At Bats">QAB</th>
+                            <th title="Hard Hit Balls">HHB</th>
+                            <th title="Line Drives">LD</th>
+                            <th title="Fly Balls">FB</th>
+                            <th title="Ground Balls">GB</th>
+                            <th title="Batting Average on Balls in Play">BABIP</th>
+                            <th title="Batting Average with Runners in Scoring Position">BA/RISP</th>
+                            <th title="Runners Left on Base">LOB</th>
+                            <th title="2-Out RBI">2OUTRBI</th>
+                            <th title="Extra-Base Hits">XBH</th>
+                            <th title="Total Bases">TB</th>
+                            <th title="Pitches Seen">PS</th>
+                            <th title="Pitches Seen per Plate Appearance">PS/PA</th>
+                            <th title="PA with 3+ pitches after 2 strikes">2S+3</th>
+                            <th title="Plate Appearances with 6+ Pitches">6+</th>
+                            <th title="Hit into Double Play">GIDP</th>
+                            <th title="Catcher's Interference">CI</th>
+                            <th title="Batting Average">AVG</th>
+                            <th title="On-Base Percentage">OBP</th>
+                            <th title="OPS">OPS</th>
+                            <th title="Slugging Percentage">SLG</th>
+                            <th title="Hits">H</th>
+                            <th title="Singles">1B</th>
+                            <th title="Doubles">2B</th>
+                            <th title="Triples">3B</th>
+                            <th title="Home Runs">HR</th>
+                            <th title="Runs Batted In">RBI</th>
+                          </tr>
+                        </thead>
+                        <tbody>
+                          {byTeam.get(team)!.map((row, i) => (
+                            <tr key={i}>
+                              <td style={{ fontWeight: 600 }}>{row.player_name}</td>
+                              <td>{fmtInt(row.gp)}</td>
+                              <td>{fmtInt(row.pa)}</td>
+                              <td>{fmtInt(row.ab)}</td>
+                              <td>{fmtInt(row.qab)}</td>
+                              <td>{fmtInt(row.hhb)}</td>
+                              <td>{fmtInt(row.ld)}</td>
+                              <td>{fmtInt(row.fb)}</td>
+                              <td>{fmtInt(row.gb)}</td>
+                              <td>{fmtAvg(row.babip)}</td>
+                              <td>{fmtAvg(row.ba_risp)}</td>
+                              <td>{fmtInt(row.lob)}</td>
+                              <td>{fmtInt(row.two_out_rbi)}</td>
+                              <td>{fmtInt(row.xbh)}</td>
+                              <td>{fmtInt(row.tb)}</td>
+                              <td>{fmtInt(row.ps)}</td>
+                              <td>{fmtDec(row.ps_pa)}</td>
+                              <td>{fmtInt(row.two_s3)}</td>
+                              <td>{fmtInt(row.six_plus)}</td>
+                              <td>{fmtInt(row.gidp)}</td>
+                              <td>{fmtInt(row.ci)}</td>
+                              <td style={{ fontWeight: 650 }}>{fmtAvg(row.avg)}</td>
+                              <td>{fmtAvg(row.obp)}</td>
+                              <td>{fmtAvg(row.ops)}</td>
+                              <td>{fmtAvg(row.slg)}</td>
+                              <td>{fmtInt(row.h)}</td>
+                              <td>{fmtInt(row.singles)}</td>
+                              <td>{fmtInt(row.doubles)}</td>
+                              <td>{fmtInt(row.triples)}</td>
+                              <td>{fmtInt(row.hr)}</td>
+                              <td>{fmtInt(row.rbi)}</td>
+                            </tr>
+                          ))}
+                        </tbody>
+                      </table>
+                    </div>
+                  </div>
+                ));
+              })()}
+
 
               {/* Stat Legend */}
               <article className="card" style={{ marginTop: "2rem" }}>
