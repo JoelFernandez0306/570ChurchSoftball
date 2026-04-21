@@ -548,6 +548,7 @@ export async function loadTieOverrides(): Promise<
 export interface BattingStatRow {
   player_name: string;
   team_name: string | null;
+  season_type: string;
   gp: number;
   pa: number;
   ab: number;
@@ -588,7 +589,7 @@ export async function loadBattingStats(): Promise<{ rows: BattingStatRow[]; sync
     const { data, error } = await supabase
       .schema("league")
       .from("player_batting_stats")
-      .select("player_name,team_name,gp,pa,ab,avg,obp,slg,ops,h,singles,doubles,triples,hr,rbi,qab,hhb,ld,fb,gb,babip,ba_risp,lob,two_out_rbi,xbh,tb,ps,ps_pa,two_s3,six_plus,gidp,ci,synced_at")
+      .select("player_name,team_name,season_type,gp,pa,ab,avg,obp,slg,ops,h,singles,doubles,triples,hr,rbi,qab,hhb,ld,fb,gb,babip,ba_risp,lob,two_out_rbi,xbh,tb,ps,ps_pa,two_s3,six_plus,gidp,ci,synced_at")
       .order("avg", { ascending: false, nullsFirst: false });
 
     if (error) return { rows: [], syncedAt: null };

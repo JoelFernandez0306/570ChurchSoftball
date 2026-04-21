@@ -1,5 +1,5 @@
 import { SiteHeader } from "@/components/site-header";
-import { loadBattingStats } from "@/lib/league-data";
+import { loadBattingStats, BattingStatRow } from "@/lib/league-data";
 import { formatInTimeZone } from "date-fns-tz";
 
 export const dynamic = "force-dynamic";
@@ -41,12 +41,119 @@ const LEGEND = [
   { abbr: "CI",      def: "Batter advances on catcher's interference" },
 ];
 
+function PhaseStats({ rows }: { rows: BattingStatRow[] }) {
+  const teamOrder: string[] = [];
+  const byTeam = new Map<string, BattingStatRow[]>();
+  for (const row of rows) {
+    const t = row.team_name ?? "Unknown";
+    if (!byTeam.has(t)) { byTeam.set(t, []); teamOrder.push(t); }
+    byTeam.get(t)!.push(row);
+  }
+
+  return (
+    <>
+      {teamOrder.map(team => (
+        <div key={team} style={{ marginBottom: "2rem", minWidth: 0 }}>
+          <h3 style={{
+            fontSize: "1.4rem",
+            fontWeight: 700,
+            padding: "0.6rem 0",
+            borderBottom: "3px solid var(--accent, #2563eb)",
+            marginBottom: "0.75rem",
+          }}>
+            {team}
+          </h3>
+          <div className="table-wrap">
+            <table>
+              <thead>
+                <tr>
+                  <th style={{ position: "sticky", left: 0, zIndex: 2, background: "var(--surface-alt)" }}>Player</th>
+                  <th title="Games Played">GP</th>
+                  <th title="Plate Appearances">PA</th>
+                  <th title="At Bats">AB</th>
+                  <th title="Quality At Bats">QAB</th>
+                  <th title="Hard Hit Balls">HHB</th>
+                  <th title="Line Drives">LD</th>
+                  <th title="Fly Balls">FB</th>
+                  <th title="Ground Balls">GB</th>
+                  <th title="Batting Average on Balls in Play">BABIP</th>
+                  <th title="Batting Average with Runners in Scoring Position">BA/RISP</th>
+                  <th title="Runners Left on Base">LOB</th>
+                  <th title="2-Out RBI">2OUTRBI</th>
+                  <th title="Extra-Base Hits">XBH</th>
+                  <th title="Total Bases">TB</th>
+                  <th title="Pitches Seen">PS</th>
+                  <th title="Pitches Seen per Plate Appearance">PS/PA</th>
+                  <th title="PA with 3+ pitches after 2 strikes">2S+3</th>
+                  <th title="Plate Appearances with 6+ Pitches">6+</th>
+                  <th title="Hit into Double Play">GIDP</th>
+                  <th title="Catcher's Interference">CI</th>
+                  <th title="Batting Average">AVG</th>
+                  <th title="On-Base Percentage">OBP</th>
+                  <th title="OPS">OPS</th>
+                  <th title="Slugging Percentage">SLG</th>
+                  <th title="Hits">H</th>
+                  <th title="Singles">1B</th>
+                  <th title="Doubles">2B</th>
+                  <th title="Triples">3B</th>
+                  <th title="Home Runs">HR</th>
+                  <th title="Runs Batted In">RBI</th>
+                </tr>
+              </thead>
+              <tbody>
+                {byTeam.get(team)!.map((row, i) => (
+                  <tr key={i}>
+                    <td style={{ fontWeight: 600, position: "sticky", left: 0, zIndex: 1, background: "var(--surface-alt)" }}>{row.player_name}</td>
+                    <td>{fmtInt(row.gp)}</td>
+                    <td>{fmtInt(row.pa)}</td>
+                    <td>{fmtInt(row.ab)}</td>
+                    <td>{fmtInt(row.qab)}</td>
+                    <td>{fmtInt(row.hhb)}</td>
+                    <td>{fmtInt(row.ld)}</td>
+                    <td>{fmtInt(row.fb)}</td>
+                    <td>{fmtInt(row.gb)}</td>
+                    <td>{fmtAvg(row.babip)}</td>
+                    <td>{fmtAvg(row.ba_risp)}</td>
+                    <td>{fmtInt(row.lob)}</td>
+                    <td>{fmtInt(row.two_out_rbi)}</td>
+                    <td>{fmtInt(row.xbh)}</td>
+                    <td>{fmtInt(row.tb)}</td>
+                    <td>{fmtInt(row.ps)}</td>
+                    <td>{fmtDec(row.ps_pa)}</td>
+                    <td>{fmtInt(row.two_s3)}</td>
+                    <td>{fmtInt(row.six_plus)}</td>
+                    <td>{fmtInt(row.gidp)}</td>
+                    <td>{fmtInt(row.ci)}</td>
+                    <td style={{ fontWeight: 650 }}>{fmtAvg(row.avg)}</td>
+                    <td>{fmtAvg(row.obp)}</td>
+                    <td>{fmtAvg(row.ops)}</td>
+                    <td>{fmtAvg(row.slg)}</td>
+                    <td>{fmtInt(row.h)}</td>
+                    <td>{fmtInt(row.singles)}</td>
+                    <td>{fmtInt(row.doubles)}</td>
+                    <td>{fmtInt(row.triples)}</td>
+                    <td>{fmtInt(row.hr)}</td>
+                    <td>{fmtInt(row.rbi)}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        </div>
+      ))}
+    </>
+  );
+}
+
 export default async function StatsPage() {
   const { rows, syncedAt } = await loadBattingStats();
 
   const syncLabel = syncedAt
     ? formatInTimeZone(new Date(syncedAt), "America/New_York", "MMM d 'at' h:mm a zzz")
     : null;
+
+  const regularRows = rows.filter(r => r.season_type !== "playoff");
+  const playoffRows = rows.filter(r => r.season_type === "playoff");
 
   return (
     <>
@@ -75,106 +182,25 @@ export default async function StatsPage() {
             </article>
           ) : (
             <>
-              {/* Group rows by team */}
-              {(() => {
-                const teamOrder: string[] = [];
-                const byTeam = new Map<string, typeof rows>();
-                for (const row of rows) {
-                  const t = row.team_name ?? "Unknown";
-                  if (!byTeam.has(t)) { byTeam.set(t, []); teamOrder.push(t); }
-                  byTeam.get(t)!.push(row);
-                }
-                return teamOrder.map(team => (
-                  <div key={team} style={{ marginBottom: "2rem", minWidth: 0 }}>
-                    <h3 style={{
-                      fontSize: "1.4rem",
-                      fontWeight: 700,
-                      padding: "0.6rem 0",
-                      borderBottom: "3px solid var(--accent, #2563eb)",
-                      marginBottom: "0.75rem",
-                    }}>
-                      {team}
-                    </h3>
-                    <div className="table-wrap">
-                      <table>
-                        <thead>
-                          <tr>
-                            <th style={{ position: "sticky", left: 0, zIndex: 2, background: "var(--surface-alt)" }}>Player</th>
-                            <th title="Games Played">GP</th>
-                            <th title="Plate Appearances">PA</th>
-                            <th title="At Bats">AB</th>
-                            <th title="Quality At Bats">QAB</th>
-                            <th title="Hard Hit Balls">HHB</th>
-                            <th title="Line Drives">LD</th>
-                            <th title="Fly Balls">FB</th>
-                            <th title="Ground Balls">GB</th>
-                            <th title="Batting Average on Balls in Play">BABIP</th>
-                            <th title="Batting Average with Runners in Scoring Position">BA/RISP</th>
-                            <th title="Runners Left on Base">LOB</th>
-                            <th title="2-Out RBI">2OUTRBI</th>
-                            <th title="Extra-Base Hits">XBH</th>
-                            <th title="Total Bases">TB</th>
-                            <th title="Pitches Seen">PS</th>
-                            <th title="Pitches Seen per Plate Appearance">PS/PA</th>
-                            <th title="PA with 3+ pitches after 2 strikes">2S+3</th>
-                            <th title="Plate Appearances with 6+ Pitches">6+</th>
-                            <th title="Hit into Double Play">GIDP</th>
-                            <th title="Catcher's Interference">CI</th>
-                            <th title="Batting Average">AVG</th>
-                            <th title="On-Base Percentage">OBP</th>
-                            <th title="OPS">OPS</th>
-                            <th title="Slugging Percentage">SLG</th>
-                            <th title="Hits">H</th>
-                            <th title="Singles">1B</th>
-                            <th title="Doubles">2B</th>
-                            <th title="Triples">3B</th>
-                            <th title="Home Runs">HR</th>
-                            <th title="Runs Batted In">RBI</th>
-                          </tr>
-                        </thead>
-                        <tbody>
-                          {byTeam.get(team)!.map((row, i) => (
-                            <tr key={i}>
-                              <td style={{ fontWeight: 600, position: "sticky", left: 0, zIndex: 1, background: "var(--surface-alt)" }}>{row.player_name}</td>
-                              <td>{fmtInt(row.gp)}</td>
-                              <td>{fmtInt(row.pa)}</td>
-                              <td>{fmtInt(row.ab)}</td>
-                              <td>{fmtInt(row.qab)}</td>
-                              <td>{fmtInt(row.hhb)}</td>
-                              <td>{fmtInt(row.ld)}</td>
-                              <td>{fmtInt(row.fb)}</td>
-                              <td>{fmtInt(row.gb)}</td>
-                              <td>{fmtAvg(row.babip)}</td>
-                              <td>{fmtAvg(row.ba_risp)}</td>
-                              <td>{fmtInt(row.lob)}</td>
-                              <td>{fmtInt(row.two_out_rbi)}</td>
-                              <td>{fmtInt(row.xbh)}</td>
-                              <td>{fmtInt(row.tb)}</td>
-                              <td>{fmtInt(row.ps)}</td>
-                              <td>{fmtDec(row.ps_pa)}</td>
-                              <td>{fmtInt(row.two_s3)}</td>
-                              <td>{fmtInt(row.six_plus)}</td>
-                              <td>{fmtInt(row.gidp)}</td>
-                              <td>{fmtInt(row.ci)}</td>
-                              <td style={{ fontWeight: 650 }}>{fmtAvg(row.avg)}</td>
-                              <td>{fmtAvg(row.obp)}</td>
-                              <td>{fmtAvg(row.ops)}</td>
-                              <td>{fmtAvg(row.slg)}</td>
-                              <td>{fmtInt(row.h)}</td>
-                              <td>{fmtInt(row.singles)}</td>
-                              <td>{fmtInt(row.doubles)}</td>
-                              <td>{fmtInt(row.triples)}</td>
-                              <td>{fmtInt(row.hr)}</td>
-                              <td>{fmtInt(row.rbi)}</td>
-                            </tr>
-                          ))}
-                        </tbody>
-                      </table>
-                    </div>
-                  </div>
-                ));
-              })()}
+              {/* Regular Season */}
+              {regularRows.length > 0 && (
+                <>
+                  <h2 style={{ fontSize: "1.6rem", fontWeight: 800, marginBottom: "0.25rem" }}>
+                    Regular Season
+                  </h2>
+                  <PhaseStats rows={regularRows} />
+                </>
+              )}
 
+              {/* Playoffs */}
+              {playoffRows.length > 0 && (
+                <>
+                  <h2 style={{ fontSize: "1.6rem", fontWeight: 800, margin: "1.5rem 0 0.25rem" }}>
+                    Playoffs
+                  </h2>
+                  <PhaseStats rows={playoffRows} />
+                </>
+              )}
 
               {/* Stat Legend */}
               <article className="card" style={{ marginTop: "2rem" }}>

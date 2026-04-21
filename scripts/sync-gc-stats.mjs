@@ -39,10 +39,14 @@ const DEBUG                     = process.env.GC_DEBUG === "1";
 const GC_TEAM_URLS = (process.env.GC_TEAM_URLS || process.env.GC_TEAM_URL || "")
   .split(",").map(u => u.trim()).filter(Boolean);
 
-// Optional season start cutoff — skip games before this date
-const GC_SEASON_START = process.env.GC_SEASON_START
-  ? new Date(process.env.GC_SEASON_START)
-  : null;
+// Date boundaries (all optional)
+const GC_SEASON_START  = process.env.GC_SEASON_START  ? new Date(process.env.GC_SEASON_START)  : null;
+const GC_SEASON_END    = process.env.GC_SEASON_END    ? new Date(process.env.GC_SEASON_END)    : null;
+const GC_PLAYOFF_START = process.env.GC_PLAYOFF_START ? new Date(process.env.GC_PLAYOFF_START) : null;
+
+// Auto-detect current phase based on today's date
+const today = new Date();
+const SYNC_PHASE = (GC_PLAYOFF_START && today >= GC_PLAYOFF_START) ? "playoff" : "regular";
 
 if (!SUPABASE_URL || !SUPABASE_SERVICE_ROLE_KEY) {
   console.error("Missing: SUPABASE_URL, SUPABASE_SERVICE_ROLE_KEY");
@@ -278,12 +282,16 @@ async function discoverGameUrls(page, scheduleUrl) {
     console.log(`    [${dateStr}] ${opp}${skipped}`);
   }
 
-  // Filter by season start cutoff if set; include games with unknown date
+  // Filter by the phase-appropriate date window; include games with unknown dates
+  const afterDate  = SYNC_PHASE === "playoff" ? GC_PLAYOFF_START : GC_SEASON_START;
+  const beforeDate = SYNC_PHASE === "playoff" ? null             : GC_SEASON_END;
+
   const eligibleGames = scheduleData.filter(item => {
     if (!item.event?.id) return false;
-    if (GC_SEASON_START) {
-      const gameDate = getEventDate(item);
-      if (gameDate && gameDate < GC_SEASON_START) return false;
+    const gameDate = getEventDate(item);
+    if (gameDate) {
+      if (afterDate  && gameDate < afterDate)  return false;
+      if (beforeDate && gameDate > beforeDate) return false;
     }
     return true;
   });
@@ -300,9 +308,9 @@ function aggregateStats(allGameRows) {
   const byPlayer = new Map();
 
   for (const row of allGameRows) {
-    const key = `${row.player_name}|${row.team_name}`;
+    const key = `${row.player_name}|${row.team_name}|${row.season_type}`;
     if (!byPlayer.has(key)) {
-      byPlayer.set(key, { player_name: row.player_name, team_name: row.team_name, gp: 0 });
+      byPlayer.set(key, { player_name: row.player_name, team_name: row.team_name, season_type: row.season_type, gp: 0 });
     }
     const agg = byPlayer.get(key);
     agg.gp += 1;
@@ -330,6 +338,7 @@ function aggregateStats(allGameRows) {
     return {
       player_name:  agg.player_name,
       team_name:    agg.team_name,
+      season_type:  agg.season_type,
       gp:           agg.gp,
       pa, ab,
       avg:          ab > 0 ? h / ab : null,
@@ -368,8 +377,14 @@ function aggregateStats(allGameRows) {
 
 async function main() {
   console.log(`\n🔄 Syncing GC stats from per-game pages`);
+  console.log(`   Phase:        ${SYNC_PHASE}`);
   console.log(`   Teams:        ${GC_TEAM_URLS.length} team URL(s)`);
-  console.log(`   Season start: ${GC_SEASON_START ? GC_SEASON_START.toISOString().slice(0,10) : "(no cutoff — all games)"}\n`);
+  if (SYNC_PHASE === "regular") {
+    console.log(`   Date range:   ${GC_SEASON_START?.toISOString().slice(0,10) ?? "any"} → ${GC_SEASON_END?.toISOString().slice(0,10) ?? "any"}`);
+  } else {
+    console.log(`   Date range:   ${GC_PLAYOFF_START?.toISOString().slice(0,10) ?? "any"} → end`);
+  }
+  console.log();
 
   const session = loadSession();
   console.log(`  Session: ${session.cookies?.length ?? 0} cookies\n`);
@@ -541,6 +556,7 @@ async function main() {
           allGameRows.push({
             player_name:  name,
             team_name:    inferredTeam,
+            season_type:  SYNC_PHASE,
             pa:           parseStat(row["PA"])  ?? parseStat(std["PA"]),
             ab:           parseStat(row["AB"])  ?? parseStat(std["AB"]),
             h:            parseStat(std["H"])   ?? 0,
@@ -596,7 +612,7 @@ async function main() {
   for (let i = 0; i < aggregated.length; i += 50) {
     const batch = aggregated.slice(i, i + 50);
     const { error } = await supabase.from("player_batting_stats").upsert(batch, {
-      onConflict: "player_name,team_name",
+      onConflict: "player_name,team_name,season_type",
       ignoreDuplicates: false,
     });
     if (error) {
@@ -605,11 +621,13 @@ async function main() {
     }
   }
 
-  // Remove players no longer seen in GC
+  // Remove rows for THIS phase that are no longer seen (player removed from GC).
+  // Never touch the other phase's rows.
   const currentKeys = aggregated.map(r => r.player_name);
   await supabase
     .from("player_batting_stats")
     .delete()
+    .eq("season_type", SYNC_PHASE)
     .not("player_name", "in", `(${currentKeys.map(n => `"${n}"`).join(",")})`);
 
   console.log(`\n🏆 Sync complete — ${aggregated.length} players updated.`);

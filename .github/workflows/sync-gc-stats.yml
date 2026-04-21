@@ -41,6 +41,8 @@ jobs:
           GC_SESSION: ${{ secrets.GC_SESSION }}
           GC_TEAM_URLS: ${{ secrets.GC_TEAM_URLS }}
           GC_SEASON_START: ${{ secrets.GC_SEASON_START }}
+          GC_SEASON_END: ${{ secrets.GC_SEASON_END }}
+          GC_PLAYOFF_START: ${{ secrets.GC_PLAYOFF_START }}
           GC_DEBUG: ${{ github.event.inputs.debug || '0' }}
         run: node scripts/sync-gc-stats.mjs
 
