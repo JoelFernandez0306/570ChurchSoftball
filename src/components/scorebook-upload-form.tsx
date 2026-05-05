@@ -12,9 +12,9 @@ interface GameOption {
   homeTeam: string;
 }
 
-interface RosterPlayer {
+interface TeamOption {
   name: string;
-  team: string;
+  players: string[];
 }
 
 interface ExtractedPlayer {
@@ -28,8 +28,7 @@ interface ExtractedPlayer {
   crossed_out: boolean;
 }
 
-interface ExtractedTeam {
-  team_name: string;
+interface ExtractedData {
   players: ExtractedPlayer[];
   notes?: {
     "2B"?: string[];
@@ -40,26 +39,26 @@ interface ExtractedTeam {
 
 interface Props {
   games: GameOption[];
-  allPlayers: RosterPlayer[];
+  teams: TeamOption[];
   seasonType: string;
 }
 
-type Step = "upload" | "review" | "verify" | "submit";
+type Step = "upload" | "review" | "verify" | "done";
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
 
-function fuzzyMatch(extracted: string, roster: RosterPlayer[]): RosterPlayer | null {
+function fuzzyMatch(extracted: string, roster: string[]): string {
   const norm = (s: string) => s.toLowerCase().replace(/[^a-z ]/g, "");
   const eParts = norm(extracted).split(" ").filter(Boolean);
-  let best: RosterPlayer | null = null;
+  let best = "";
   let bestScore = 0;
-  for (const p of roster) {
-    const rParts = norm(p.name).split(" ").filter(Boolean);
+  for (const name of roster) {
+    const rParts = norm(name).split(" ").filter(Boolean);
     const common = eParts.filter((ep) => rParts.some((rp) => rp.startsWith(ep) || ep.startsWith(rp))).length;
     const score = common / Math.max(eParts.length, rParts.length);
-    if (score > bestScore) { bestScore = score; best = p; }
+    if (score > bestScore) { bestScore = score; best = name; }
   }
-  return bestScore >= 0.4 ? best : null;
+  return bestScore >= 0.4 ? best : "";
 }
 
 function resolveNoteCount(notesArr: string[], playerName: string): number {
@@ -78,25 +77,36 @@ function resolveNoteCount(notesArr: string[], playerName: string): number {
   return total;
 }
 
-// ── Main component ────────────────────────────────────────────────────────────
+// ── Component ─────────────────────────────────────────────────────────────────
 
-export function ScoreBookUploadForm({ games, allPlayers, seasonType }: Props) {
+export function ScoreBookUploadForm({ games, teams, seasonType }: Props) {
   const [step, setStep] = useState<Step>("upload");
   const [gameId, setGameId] = useState(games[0]?.id ?? "");
+  const [teamName, setTeamName] = useState(teams[0]?.name ?? "");
   const [imagePreview, setImagePreview] = useState<string | null>(null);
   const [imageFile, setImageFile] = useState<File | null>(null);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const [extractedTeams, setExtractedTeams] = useState<ExtractedTeam[]>([]);
-  // player-level overrides: key = "teamIdx-playerIdx", value = { crossed_out, stat overrides }
-  const [playerOverrides, setPlayerOverrides] = useState<Record<string, Partial<ExtractedPlayer>>>({});
-  // name map: "teamIdx-playerIdx" → verified player name (or "SKIP")
-  const [nameMap, setNameMap] = useState<Record<string, string>>({});
+  const [extracted, setExtracted] = useState<ExtractedData | null>(null);
+  // per-player overrides keyed by index
+  const [overrides, setOverrides] = useState<Record<number, Partial<ExtractedPlayer>>>({});
+  // name map: index → verified roster name (or "SKIP")
+  const [nameMap, setNameMap] = useState<Record<number, string>>({});
   const [saving, setSaving] = useState(false);
   const [saved, setSaved] = useState(false);
   const fileRef = useRef<HTMLInputElement>(null);
 
-  // ── Step 1: Upload ──────────────────────────────────────────────────────────
+  const selectedTeam = teams.find((t) => t.name === teamName);
+  const selectedGame = games.find((g) => g.id === gameId);
+
+  // ── Effective player (base + overrides) ────────────────────────────────────
+
+  function getPlayer(idx: number): ExtractedPlayer {
+    const base = extracted!.players[idx];
+    return { ...base, ...(overrides[idx] ?? {}) };
+  }
+
+  // ── Step 1: Upload + process ───────────────────────────────────────────────
 
   function handleFileChange(e: React.ChangeEvent<HTMLInputElement>) {
     const file = e.target.files?.[0];
@@ -108,27 +118,28 @@ export function ScoreBookUploadForm({ games, allPlayers, seasonType }: Props) {
   }
 
   async function handleProcess() {
-    if (!imageFile || !gameId) { setError("Please select a game and upload an image."); return; }
+    if (!imageFile || !gameId || !teamName) {
+      setError("Please select a game, team, and upload an image.");
+      return;
+    }
     setLoading(true);
     setError(null);
     try {
       const fd = new FormData();
       fd.append("image", imageFile);
+      fd.append("teamName", teamName);
       const res = await fetch("/api/admin/process-scorebook", { method: "POST", body: fd });
       const data = await res.json();
       if (!res.ok) throw new Error(data.error ?? "Processing failed");
-      if (!data.teams || !Array.isArray(data.teams)) throw new Error("Unexpected response format");
+      if (!Array.isArray(data.players)) throw new Error("Unexpected response from Claude");
 
-      setExtractedTeams(data.teams);
+      setExtracted(data);
 
-      // Initialise name map with fuzzy-matched suggestions
-      const initMap: Record<string, string> = {};
-      data.teams.forEach((team: ExtractedTeam, ti: number) => {
-        team.players.forEach((p: ExtractedPlayer, pi: number) => {
-          const key = `${ti}-${pi}`;
-          const match = fuzzyMatch(p.name, allPlayers);
-          initMap[key] = match?.name ?? "";
-        });
+      // Pre-fill name map with fuzzy matches against this team's roster
+      const roster = selectedTeam?.players ?? [];
+      const initMap: Record<number, string> = {};
+      data.players.forEach((p: ExtractedPlayer, i: number) => {
+        initMap[i] = fuzzyMatch(p.name, roster);
       });
       setNameMap(initMap);
       setStep("review");
@@ -139,77 +150,49 @@ export function ScoreBookUploadForm({ games, allPlayers, seasonType }: Props) {
     }
   }
 
-  // ── Step 2: Review helpers ──────────────────────────────────────────────────
+  // ── Step 2: Review helpers ─────────────────────────────────────────────────
 
-  function getPlayer(ti: number, pi: number): ExtractedPlayer & { crossed_out: boolean } {
-    const base = extractedTeams[ti].players[pi];
-    const over = playerOverrides[`${ti}-${pi}`] ?? {};
-    return { ...base, ...over };
+  function toggleCrossedOut(idx: number) {
+    const cur = overrides[idx]?.crossed_out ?? extracted!.players[idx].crossed_out;
+    setOverrides((prev) => ({ ...prev, [idx]: { ...prev[idx], crossed_out: !cur } }));
   }
 
-  function toggleCrossedOut(ti: number, pi: number) {
-    const key = `${ti}-${pi}`;
-    const cur = playerOverrides[key]?.crossed_out ?? extractedTeams[ti].players[pi].crossed_out;
-    setPlayerOverrides((prev) => ({ ...prev, [key]: { ...prev[key], crossed_out: !cur } }));
+  function setStat(idx: number, field: keyof ExtractedPlayer, value: number) {
+    setOverrides((prev) => ({ ...prev, [idx]: { ...prev[idx], [field]: value } }));
   }
 
-  function setStat(ti: number, pi: number, field: keyof ExtractedPlayer, value: number) {
-    const key = `${ti}-${pi}`;
-    setPlayerOverrides((prev) => ({ ...prev, [key]: { ...prev[key], [field]: value } }));
-  }
-
-  // ── Step 3: Verify helpers ──────────────────────────────────────────────────
-
-  // Collect all active (non-crossed-out) players needing verification
-  function getActivePlayers() {
-    const result: Array<{ ti: number; pi: number; player: ExtractedPlayer; teamName: string }> = [];
-    extractedTeams.forEach((team, ti) => {
-      team.players.forEach((_, pi) => {
-        const p = getPlayer(ti, pi);
-        if (!p.crossed_out) result.push({ ti, pi, player: p, teamName: team.team_name });
-      });
-    });
-    return result;
-  }
-
-  // ── Step 4: Build final rows & save ────────────────────────────────────────
+  // ── Step 4: Save ──────────────────────────────────────────────────────────
 
   async function handleSave() {
     setSaving(true);
     setError(null);
     try {
-      const activePlayers = getActivePlayers();
+      const notes = extracted?.notes ?? {};
       const rows: ScoreBookPlayerStat[] = [];
 
-      for (const { ti, pi, player, teamName } of activePlayers) {
-        const key = `${ti}-${pi}`;
-        const verifiedName = nameMap[key];
-        if (!verifiedName || verifiedName === "SKIP") continue;
+      extracted!.players.forEach((_, idx) => {
+        const p = getPlayer(idx);
+        if (p.crossed_out) return;
+        const verifiedName = nameMap[idx];
+        if (!verifiedName || verifiedName === "SKIP") return;
 
-        const team = extractedTeams[ti];
-        const notes = team.notes ?? {};
-        const doubles = resolveNoteCount(notes["2B"] ?? [], player.name);
-        const triples = resolveNoteCount(notes["3B"] ?? [], player.name);
-        const hr      = resolveNoteCount(notes.HR ?? [], player.name);
-        const singles = Math.max(0, player.h - doubles - triples - hr);
+        const doubles = resolveNoteCount(notes["2B"] ?? [], p.name);
+        const triples  = resolveNoteCount(notes["3B"] ?? [], p.name);
+        const hr       = resolveNoteCount(notes.HR  ?? [], p.name);
+        const singles  = Math.max(0, p.h - doubles - triples - hr);
 
         rows.push({
           player_name: verifiedName,
-          team_name:   teamName.replace(/\.$/, "").trim(),
-          ab:  player.ab,
-          r:   player.r,
-          h:   player.h,
-          rbi: player.rbi,
-          bb:  player.bb,
-          so:  player.so,
+          team_name:   teamName,
+          ab: p.ab, r: p.r, h: p.h, rbi: p.rbi, bb: p.bb, so: p.so,
           singles, doubles, triples, hr,
         });
-      }
+      });
 
       if (rows.length === 0) throw new Error("No valid player rows to save.");
       await saveScoreBookStatsAction(gameId, seasonType, rows);
       setSaved(true);
-      setStep("submit");
+      setStep("done");
     } catch (err) {
       setError(err instanceof Error ? err.message : "Save failed");
     } finally {
@@ -219,23 +202,24 @@ export function ScoreBookUploadForm({ games, allPlayers, seasonType }: Props) {
 
   // ── Render ─────────────────────────────────────────────────────────────────
 
-  const selectedGame = games.find((g) => g.id === gameId);
+  const STEPS: { key: Step; label: string }[] = [
+    { key: "upload",  label: "1. Upload" },
+    { key: "review",  label: "2. Review" },
+    { key: "verify",  label: "3. Verify Names" },
+    { key: "done",    label: "4. Done" },
+  ];
 
   return (
-    <div style={{ maxWidth: 900 }}>
+    <div style={{ maxWidth: 860 }}>
       {/* Step indicator */}
       <div style={{ display: "flex", gap: "0.5rem", marginBottom: "1.5rem", flexWrap: "wrap" }}>
-        {(["upload", "review", "verify", "submit"] as Step[]).map((s, idx) => (
-          <span key={s} style={{
-            padding: "0.25rem 0.75rem",
-            borderRadius: 999,
-            fontSize: "0.8rem",
-            fontWeight: step === s ? 700 : 400,
-            background: step === s ? "var(--accent, #2563eb)" : "var(--surface-alt)",
-            color: step === s ? "#fff" : "var(--ink-soft)",
-          }}>
-            {idx + 1}. {s === "upload" ? "Upload" : s === "review" ? "Review" : s === "verify" ? "Verify Names" : "Done"}
-          </span>
+        {STEPS.map(({ key, label }) => (
+          <span key={key} style={{
+            padding: "0.25rem 0.75rem", borderRadius: 999, fontSize: "0.8rem",
+            fontWeight: step === key ? 700 : 400,
+            background: step === key ? "var(--accent, #2563eb)" : "var(--surface-alt)",
+            color: step === key ? "#fff" : "var(--ink-soft)",
+          }}>{label}</span>
         ))}
       </div>
 
@@ -256,102 +240,93 @@ export function ScoreBookUploadForm({ games, allPlayers, seasonType }: Props) {
           </div>
 
           <div>
+            <label style={{ fontWeight: 600, display: "block", marginBottom: "0.25rem" }}>Team (whose scorebook page is this?)</label>
+            <select value={teamName} onChange={(e) => setTeamName(e.target.value)} style={{ width: "100%", padding: "0.5rem" }}>
+              {teams.map((t) => <option key={t.name} value={t.name}>{t.name}</option>)}
+            </select>
+          </div>
+
+          <div>
             <label style={{ fontWeight: 600, display: "block", marginBottom: "0.25rem" }}>Scorebook Photo</label>
-            <input ref={fileRef} type="file" accept="image/*" onChange={handleFileChange} style={{ display: "block" }} />
+            <input ref={fileRef} type="file" accept="image/*" onChange={handleFileChange} />
             <p style={{ fontSize: "0.8rem", color: "var(--ink-soft)", marginTop: "0.25rem" }}>
-              JPG, PNG, or WEBP. Take a clear, well-lit photo of the full lineup section.
+              JPG, PNG, or WEBP. Capture the full batting lineup section clearly.
             </p>
           </div>
 
           {imagePreview && (
-            <img src={imagePreview} alt="Scorebook preview" style={{ maxWidth: "100%", maxHeight: 400, objectFit: "contain", borderRadius: 8, border: "1px solid var(--border)" }} />
+            <img src={imagePreview} alt="Preview" style={{ maxWidth: "100%", maxHeight: 380, objectFit: "contain", borderRadius: 8, border: "1px solid var(--border)" }} />
           )}
 
-          <button
-            onClick={handleProcess}
-            disabled={loading || !imageFile || !gameId}
-            style={{ alignSelf: "flex-start" }}
-          >
+          <button onClick={handleProcess} disabled={loading || !imageFile || !gameId || !teamName} style={{ alignSelf: "flex-start" }}>
             {loading ? "Analyzing with Claude…" : "Extract Stats →"}
           </button>
         </article>
       )}
 
-      {/* ── STEP 2: Review extracted stats ── */}
-      {step === "review" && (
+      {/* ── STEP 2: Review ── */}
+      {step === "review" && extracted && (
         <div style={{ display: "flex", flexDirection: "column", gap: "1.5rem" }}>
           <p style={{ color: "var(--ink-soft)" }}>
-            Claude extracted the stats below. <strong>Crossed-out rows</strong> are highlighted — toggle any that were misread.
-            You can also edit individual stat values before continuing.
+            Claude extracted <strong>{teamName}</strong>&apos;s lineup. Toggle any rows that were misread, and edit individual stats if needed.
           </p>
 
-          {extractedTeams.map((team, ti) => (
-            <article key={ti} className="card">
-              <h3 style={{ marginBottom: "0.75rem" }}>{team.team_name}</h3>
-              <div className="table-wrap">
-                <table>
-                  <thead>
-                    <tr>
-                      <th>Player (as written)</th>
-                      <th title="At Bats">AB</th>
-                      <th title="Runs">R</th>
-                      <th title="Hits">H</th>
-                      <th title="RBI">RBI</th>
-                      <th title="Walks">BB</th>
-                      <th title="Strikeouts">SO</th>
-                      <th>Crossed out?</th>
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {team.players.map((_, pi) => {
-                      const p = getPlayer(ti, pi);
-                      return (
-                        <tr key={pi} style={{ opacity: p.crossed_out ? 0.4 : 1 }}>
-                          <td style={{ textDecoration: p.crossed_out ? "line-through" : "none", fontWeight: 500 }}>
-                            {p.name}
+          <article className="card">
+            <h3 style={{ marginBottom: "0.75rem" }}>{teamName}</h3>
+            <div className="table-wrap">
+              <table>
+                <thead>
+                  <tr>
+                    <th>Player (as written)</th>
+                    <th>AB</th><th>R</th><th>H</th><th>RBI</th><th>BB</th><th>SO</th>
+                    <th>Status</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {extracted.players.map((_, idx) => {
+                    const p = getPlayer(idx);
+                    return (
+                      <tr key={idx} style={{ opacity: p.crossed_out ? 0.4 : 1 }}>
+                        <td style={{ textDecoration: p.crossed_out ? "line-through" : "none", fontWeight: 500 }}>
+                          {p.name}
+                        </td>
+                        {(["ab","r","h","rbi","bb","so"] as (keyof ExtractedPlayer)[]).map((f) => (
+                          <td key={f}>
+                            <input
+                              type="number" min={0} value={p[f] as number}
+                              onChange={(e) => setStat(idx, f, parseInt(e.target.value, 10) || 0)}
+                              disabled={p.crossed_out}
+                              style={{ width: 44, textAlign: "center", padding: "0.15rem" }}
+                            />
                           </td>
-                          {(["ab","r","h","rbi","bb","so"] as (keyof ExtractedPlayer)[]).map((f) => (
-                            <td key={f}>
-                              <input
-                                type="number"
-                                min={0}
-                                value={p[f] as number}
-                                onChange={(e) => setStat(ti, pi, f, parseInt(e.target.value, 10) || 0)}
-                                disabled={p.crossed_out}
-                                style={{ width: 44, textAlign: "center", padding: "0.15rem" }}
-                              />
-                            </td>
-                          ))}
-                          <td>
-                            <button
-                              onClick={() => toggleCrossedOut(ti, pi)}
-                              style={{
-                                padding: "0.2rem 0.6rem",
-                                fontSize: "0.75rem",
-                                background: p.crossed_out ? "#fee2e2" : "#f0fdf4",
-                                color: p.crossed_out ? "#991b1b" : "#166534",
-                                border: "1px solid currentColor",
-                                borderRadius: 4,
-                              }}
-                            >
-                              {p.crossed_out ? "Crossed out ✕" : "Valid ✓"}
-                            </button>
-                          </td>
-                        </tr>
-                      );
-                    })}
-                  </tbody>
-                </table>
+                        ))}
+                        <td>
+                          <button onClick={() => toggleCrossedOut(idx)} style={{
+                            padding: "0.2rem 0.6rem", fontSize: "0.75rem", borderRadius: 4,
+                            background: p.crossed_out ? "#fee2e2" : "#f0fdf4",
+                            color: p.crossed_out ? "#991b1b" : "#166534",
+                            border: "1px solid currentColor",
+                          }}>
+                            {p.crossed_out ? "Crossed out ✕" : "Valid ✓"}
+                          </button>
+                        </td>
+                      </tr>
+                    );
+                  })}
+                </tbody>
+              </table>
+            </div>
+
+            {extracted.notes && Object.values(extracted.notes).some((v) => v && v.length > 0) && (
+              <div style={{ marginTop: "0.75rem", fontSize: "0.85rem", color: "var(--ink-soft)" }}>
+                {Object.entries(extracted.notes).map(([type, names]) =>
+                  names && (names as string[]).length > 0
+                    ? <div key={type}><strong>{type}:</strong> {(names as string[]).join(", ")}</div>
+                    : null
+                )}
               </div>
-              {team.notes && Object.keys(team.notes).length > 0 && (
-                <div style={{ marginTop: "0.75rem", fontSize: "0.85rem", color: "var(--ink-soft)" }}>
-                  {Object.entries(team.notes).map(([type, names]) =>
-                    names && names.length > 0 ? <div key={type}><strong>{type}:</strong> {(names as string[]).join(", ")}</div> : null
-                  )}
-                </div>
-              )}
-            </article>
-          ))}
+            )}
+          </article>
 
           <div style={{ display: "flex", gap: "0.75rem" }}>
             <button onClick={() => setStep("upload")} className="ghost-button">← Back</button>
@@ -361,63 +336,53 @@ export function ScoreBookUploadForm({ games, allPlayers, seasonType }: Props) {
       )}
 
       {/* ── STEP 3: Verify names ── */}
-      {step === "verify" && (
+      {step === "verify" && extracted && (
         <div style={{ display: "flex", flexDirection: "column", gap: "1.5rem" }}>
           <p style={{ color: "var(--ink-soft)" }}>
-            Match each extracted name to a player on your roster. Names already matched by Claude are pre-filled — confirm or correct them.
-            Choose <strong>Skip (not on roster)</strong> to exclude a player.
+            Match each name to a player on <strong>{teamName}</strong>&apos;s roster. Pre-filled suggestions are based on fuzzy matching — confirm or correct each one.
           </p>
 
-          {extractedTeams.map((team, ti) => {
-            const active = team.players
-              .map((_, pi) => ({ pi, player: getPlayer(ti, pi) }))
-              .filter(({ player }) => !player.crossed_out);
-            if (active.length === 0) return null;
-            return (
-              <article key={ti} className="card">
-                <h3 style={{ marginBottom: "0.75rem" }}>{team.team_name}</h3>
-                <div style={{ display: "flex", flexDirection: "column", gap: "0.75rem" }}>
-                  {active.map(({ pi, player }) => {
-                    const key = `${ti}-${pi}`;
-                    const teamRoster = allPlayers.filter((p) => p.team === team.team_name.replace(/\.$/, "").trim());
-                    const rosterOptions = allPlayers; // allow cross-team for flexibility
-                    return (
-                      <div key={key} style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "0.75rem", alignItems: "center", padding: "0.5rem 0", borderBottom: "1px solid var(--border)" }}>
-                        <div>
-                          <div style={{ fontWeight: 600 }}>{player.name}</div>
-                          <div style={{ fontSize: "0.75rem", color: "var(--ink-soft)" }}>as written in scorebook</div>
-                        </div>
-                        <div>
-                          <select
-                            value={nameMap[key] ?? ""}
-                            onChange={(e) => setNameMap((prev) => ({ ...prev, [key]: e.target.value }))}
-                            style={{ width: "100%", padding: "0.4rem" }}
-                          >
-                            <option value="">— Select player —</option>
-                            <option value="SKIP">Skip (not on roster)</option>
-                            <optgroup label="Roster">
-                              {rosterOptions.map((p) => (
-                                <option key={`${p.team}-${p.name}`} value={p.name}>
-                                  {p.name} ({p.team})
-                                </option>
-                              ))}
-                            </optgroup>
-                          </select>
-                        </div>
+          <article className="card">
+            <h3 style={{ marginBottom: "0.75rem" }}>{teamName}</h3>
+            <div style={{ display: "flex", flexDirection: "column" }}>
+              {extracted.players.map((_, idx) => {
+                const p = getPlayer(idx);
+                if (p.crossed_out) return null;
+                const roster = selectedTeam?.players ?? [];
+                return (
+                  <div key={idx} style={{
+                    display: "grid", gridTemplateColumns: "1fr 1.2fr", gap: "1rem",
+                    alignItems: "center", padding: "0.6rem 0",
+                    borderBottom: "1px solid var(--border)",
+                  }}>
+                    <div>
+                      <div style={{ fontWeight: 600 }}>{p.name}</div>
+                      <div style={{ fontSize: "0.75rem", color: "var(--ink-soft)" }}>
+                        AB {p.ab} · R {p.r} · H {p.h} · RBI {p.rbi} · BB {p.bb} · SO {p.so}
                       </div>
-                    );
-                  })}
-                </div>
-              </article>
-            );
-          })}
+                    </div>
+                    <select
+                      value={nameMap[idx] ?? ""}
+                      onChange={(e) => setNameMap((prev) => ({ ...prev, [idx]: e.target.value }))}
+                      style={{ width: "100%", padding: "0.4rem" }}
+                    >
+                      <option value="">— Select player —</option>
+                      <option value="SKIP">Skip (not on roster)</option>
+                      <optgroup label={`${teamName} roster`}>
+                        {roster.map((name) => (
+                          <option key={name} value={name}>{name}</option>
+                        ))}
+                      </optgroup>
+                    </select>
+                  </div>
+                );
+              })}
+            </div>
+          </article>
 
           <div style={{ display: "flex", gap: "0.75rem" }}>
             <button onClick={() => setStep("review")} className="ghost-button">← Back</button>
-            <button
-              onClick={handleSave}
-              disabled={saving}
-            >
+            <button onClick={handleSave} disabled={saving}>
               {saving ? "Saving…" : "Save Stats →"}
             </button>
           </div>
@@ -425,28 +390,19 @@ export function ScoreBookUploadForm({ games, allPlayers, seasonType }: Props) {
       )}
 
       {/* ── STEP 4: Done ── */}
-      {step === "submit" && saved && (
+      {step === "done" && saved && (
         <article className="card" style={{ textAlign: "center", padding: "2rem" }}>
           <div style={{ fontSize: "2.5rem", marginBottom: "0.5rem" }}>✅</div>
           <h3>Stats Saved</h3>
           <p style={{ color: "var(--ink-soft)" }}>
-            Batting stats for <strong>{selectedGame?.label}</strong> have been saved and aggregated into the season totals.
+            <strong>{teamName}</strong> stats for <strong>{selectedGame?.label}</strong> have been saved and added to the season totals.
           </p>
           <div style={{ display: "flex", justifyContent: "center", gap: "1rem", marginTop: "1.5rem" }}>
-            <a href="/stats" style={{ textDecoration: "none" }}>
-              <button>View Stats →</button>
-            </a>
+            <a href="/stats"><button>View Stats →</button></a>
             <button className="ghost-button" onClick={() => {
-              setStep("upload");
-              setImageFile(null);
-              setImagePreview(null);
-              setExtractedTeams([]);
-              setNameMap({});
-              setPlayerOverrides({});
-              setSaved(false);
-            }}>
-              Upload Another
-            </button>
+              setStep("upload"); setImageFile(null); setImagePreview(null);
+              setExtracted(null); setNameMap({}); setOverrides({}); setSaved(false);
+            }}>Upload Another Page</button>
           </div>
         </article>
       )}

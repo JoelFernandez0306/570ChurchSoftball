@@ -24,9 +24,10 @@ export default async function ScoreBookPage() {
     homeTeam: g.home_team_name,
   }));
 
-  const allPlayers = teamsWithRoster.flatMap((team) =>
-    team.players.map((p) => ({ name: p.full_name, team: team.name }))
-  );
+  const teams = teamsWithRoster.map((team) => ({
+    name: team.name,
+    players: team.players.map((p) => p.full_name),
+  }));
 
   return (
     <section className="page-surface stack">
@@ -34,15 +35,15 @@ export default async function ScoreBookPage() {
         <div>
           <h2>Upload Paper Scorebook</h2>
           <p>
-            Upload a photo of a handwritten scorebook. Claude will extract the batting
-            stats, flag any crossed-out entries, and walk you through verifying player names.
+            Scorebooks are per-team — select the game, pick which team&apos;s sheet you&apos;re
+            uploading, then Claude will extract the stats and walk you through verifying names.
           </p>
         </div>
       </div>
 
       <ScoreBookUploadForm
         games={gameOptions}
-        allPlayers={allPlayers}
+        teams={teams}
         seasonType={seasonType}
       />
     </section>

@@ -13,49 +13,45 @@ export async function POST(req: NextRequest) {
 
   const formData = await req.formData();
   const file = formData.get("image") as File | null;
+  const teamName = (formData.get("teamName") as string | null)?.trim() ?? "the team";
   if (!file) return NextResponse.json({ error: "No image provided" }, { status: 400 });
 
   const bytes = await file.arrayBuffer();
   const base64 = Buffer.from(bytes).toString("base64");
   const mediaType = (file.type || "image/jpeg") as "image/jpeg" | "image/png" | "image/webp" | "image/gif";
 
-  const prompt = `You are analyzing a handwritten softball scorebook page.
+  const prompt = `You are analyzing a handwritten softball scorebook page for the team "${teamName}".
 
-Extract the batting lineup stats for BOTH teams shown. Return ONLY valid JSON — no markdown, no explanation.
+Extract the batting lineup stats for THIS ONE TEAM ONLY. Return ONLY valid JSON — no markdown, no explanation.
 
 Return this exact structure:
 {
-  "teams": [
+  "players": [
     {
-      "team_name": "Team name as written",
-      "players": [
-        {
-          "name": "Player name as written",
-          "ab": 0,
-          "r": 0,
-          "h": 0,
-          "rbi": 0,
-          "bb": 0,
-          "so": 0,
-          "crossed_out": false
-        }
-      ],
-      "notes": {
-        "2B": ["Player name"],
-        "3B": ["Player name"],
-        "HR": ["Player name 2"]
-      }
+      "name": "Player name as written",
+      "ab": 0,
+      "r": 0,
+      "h": 0,
+      "rbi": 0,
+      "bb": 0,
+      "so": 0,
+      "crossed_out": false
     }
-  ]
+  ],
+  "notes": {
+    "2B": ["Player name"],
+    "3B": ["Player name"],
+    "HR": ["Player name 2"]
+  }
 }
 
 Rules:
-- "crossed_out": true if the player row is scribbled out, crossed out, or marked as an error. Those rows should still be included but flagged.
-- For notes (2B/3B/HR): list player names as written. If a player hit multiple (e.g., 2 HRs), write "Name 2".
-- If a stat cell is crossed out but other cells are valid, still flag the whole row as crossed_out: true.
+- "crossed_out": true if the player row is scribbled out, crossed out, or otherwise marked as an error. Include these rows but flag them.
+- For notes (2B/3B/HR): list player names as written. If a player hit multiple, write "Name 2" (e.g., "Zach Zimmerman 2").
+- If a stat cell is crossed out but it is part of a valid row, still flag the whole row as crossed_out: true.
 - If you cannot read a number clearly, use 0.
-- Include TEAM totals row only if you want — it will be ignored.
-- Extract exactly what you see. Do not guess missing values.`;
+- Skip TEAM totals rows — only include individual player rows.
+- Extract exactly what you see. Do not invent or guess missing values.`;
 
   const response = await client.messages.create({
     model: "claude-sonnet-4-6",
@@ -74,9 +70,10 @@ Rules:
   const text = response.content[0]?.type === "text" ? response.content[0].text : "";
 
   try {
-    // Strip any accidental markdown fencing
     const clean = text.replace(/^```(?:json)?\s*/i, "").replace(/\s*```\s*$/i, "").trim();
     const data = JSON.parse(clean);
+    // Validate expected shape
+    if (!Array.isArray(data.players)) throw new Error("Missing players array");
     return NextResponse.json(data);
   } catch {
     return NextResponse.json({ error: "Claude returned invalid JSON", raw: text }, { status: 422 });
