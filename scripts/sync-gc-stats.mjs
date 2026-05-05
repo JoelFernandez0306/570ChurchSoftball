@@ -222,14 +222,29 @@ async function extractAdvancedStats(page) {
 
 // ── Discover completed game URLs from IC's schedule page ─────────────────────
 
-// Extract the best available date from a schedule event item
+// Extract the best available date from a schedule event item.
+// Tries every plausible field name GC has used across API versions.
 function getEventDate(item) {
-  const raw = item.event?.start_date_time
-    ?? item.event?.start_time
-    ?? item.event?.scheduled_time
-    ?? item.event?.date
+  const e = item.event ?? item;
+  const raw = e.start_date_time
+    ?? e.start_time
+    ?? e.starts_at
+    ?? e.start_at
+    ?? e.start
+    ?? e.scheduled_time
+    ?? e.scheduled_at
+    ?? e.game_date
+    ?? e.event_date
+    ?? e.date
+    ?? e.datetime
     ?? null;
-  if (!raw) return null;
+  if (raw === null || raw === undefined) return null;
+  // Handle Unix timestamps (seconds or milliseconds)
+  if (typeof raw === "number") {
+    const ms = raw > 1e10 ? raw : raw * 1000;
+    const d = new Date(ms);
+    return isNaN(d.getTime()) ? null : d;
+  }
   const d = new Date(raw);
   return isNaN(d.getTime()) ? null : d;
 }
@@ -249,10 +264,13 @@ async function discoverSchedule(page, scheduleUrl) {
       const json = await response.json();
       if (Array.isArray(json) && json.length > 0 && json[0]?.event?.id) {
         scheduleData = json;
-        if (DEBUG) {
-          console.log(`    [DEBUG] Schedule API: ${response.url()}`);
-          console.log(`    [DEBUG] First event keys: ${Object.keys(json[0]?.event ?? {}).join(", ")}`);
-        }
+        // Always log the event keys and any date-looking fields so we can diagnose
+        const e = json[0]?.event ?? {};
+        const dateKeys = Object.keys(e).filter(k =>
+          /date|time|start|schedul|at$/i.test(k)
+        );
+        console.log(`    API captured (${json.length} events) from ${response.url()}`);
+        console.log(`    Date-related fields: ${dateKeys.length ? dateKeys.map(k => `${k}=${JSON.stringify(e[k])}`).join(" | ") : "(none found — all event keys: " + Object.keys(e).join(", ") + ")"}`);
       }
     } catch { /* ignore */ }
   };
@@ -307,33 +325,41 @@ async function discoverSchedule(page, scheduleUrl) {
     }
   }
 
-  const allDiscoveredTeamUrls = [...new Set([...apiTeamUrls, ...domTeamUrls])];
+  // Filter snowball team URLs to the same season as the seed URLs (e.g. "2026-summer")
+  // to avoid following links to teams in other leagues or seasons.
+  const seasonPrefixes = GC_TEAM_URLS.map(u => {
+    const m = u.match(/\/teams\/[^/]+\/(\d{4}-[^-]+)-/);
+    return m?.[1] ?? null;
+  }).filter(Boolean);
 
-  // Log each game
-  for (const item of scheduleData) {
-    const gameDate = getEventDate(item);
-    const dateStr  = gameDate ? gameDate.toISOString().slice(0, 10) : "?";
-    const opp      = item.event?.title ?? item.event?.id ?? "?";
-    const future   = gameDate && gameDate > today ? " [SKIPPED — future]" : "";
-    const skipped  = !future && GC_SEASON_START && gameDate && gameDate < GC_SEASON_START ? " [SKIPPED — before season start]" : "";
-    console.log(`    [${dateStr}] ${opp}${future}${skipped}`);
-  }
+  const allDiscoveredTeamUrls = [...new Set([...apiTeamUrls, ...domTeamUrls])]
+    .filter(u => seasonPrefixes.length === 0 || seasonPrefixes.some(p => u.includes(`/${p}-`)));
 
   const afterDate  = SYNC_PHASE === "playoff" ? GC_PLAYOFF_START : GC_SEASON_START;
   const beforeDate = SYNC_PHASE === "playoff" ? null             : GC_SEASON_END;
 
+  // Log each game
+  for (const item of scheduleData) {
+    const gameDate = getEventDate(item);
+    const dateStr  = gameDate ? gameDate.toISOString().slice(0, 10) : "no-date";
+    const opp      = item.event?.title ?? item.event?.id ?? "?";
+    const noDate   = !gameDate ? " [SKIPPED — date unknown]" : "";
+    const future   = gameDate && gameDate > today ? " [SKIPPED — future]" : "";
+    const tooEarly = !noDate && !future && afterDate && gameDate && gameDate < afterDate ? " [SKIPPED — before season start]" : "";
+    console.log(`    [${dateStr}] ${opp}${noDate}${future}${tooEarly}`);
+  }
+
   const eligibleGames = scheduleData.filter(item => {
     if (!item.event?.id) return false;
     const gameDate = getEventDate(item);
-    if (gameDate) {
-      if (gameDate > today)                    return false;
-      if (afterDate  && gameDate < afterDate)  return false;
-      if (beforeDate && gameDate > beforeDate) return false;
-    }
+    if (!gameDate) return false;             // skip games with no parseable date
+    if (gameDate > today)          return false;
+    if (afterDate  && gameDate < afterDate)  return false;
+    if (beforeDate && gameDate > beforeDate) return false;
     return true;
   });
 
-  console.log(`  ${eligibleGames.length} past game(s) of ${scheduleData.length} total | ${allDiscoveredTeamUrls.length} team URL(s) found`);
+  console.log(`  ${eligibleGames.length} past game(s) of ${scheduleData.length} total | ${allDiscoveredTeamUrls.length} same-season team URL(s) found`);
 
   return {
     gameUrls:  eligibleGames.map(item => `${baseUrl}/schedule/${item.event.id}/game-stats`),
