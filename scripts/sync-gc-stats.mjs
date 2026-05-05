@@ -555,21 +555,6 @@ async function scrapeBoxScore(page, boxScoreUrl) {
   });
 }
 
-// keep scrapeBoxScore clean — old unused functions removed above
-function _unused() {
-  // tryClick, triggerHorizontalRender, extractAdvancedStats removed
-}
-        row.doubles = doubles;
-        row.triples = triples;
-        row.hr      = hr;
-        row.singles = Math.max(0, row.h - doubles - triples - hr);
-      }
-
-      results.push(...playerRows);
-    }
-    return results;
-  });
-}
 
 // ── Per-player season aggregation ────────────────────────────────────────────
 
