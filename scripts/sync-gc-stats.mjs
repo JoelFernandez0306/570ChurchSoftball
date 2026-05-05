@@ -323,17 +323,15 @@ async function discoverSchedule(page, scheduleUrl, baseUrlOverride = null) {
       const finalGameIds = await page.evaluate(() => {
         const ids = new Set();
 
-        // Strategy 1: anchor tags whose ancestor contains "FINAL"
-        document.querySelectorAll("a[href]").forEach(a => {
+        // Strategy 1: GC renders each game as <a data-testid="organization-event">.
+        // "FINAL" is a <span> INSIDE the anchor, so check a.textContent directly.
+        document.querySelectorAll("a[data-testid='organization-event'], a[href*='/schedule/']").forEach(a => {
+          if (!/\bfinal\b/i.test(a.textContent ?? "")) return;
           const m = a.href.match(/\/schedule\/([A-Za-z0-9_-]{8,})(?:\/|$)/);
-          if (!m) return;
-          for (let el = a; el && el !== document.body; el = el.parentElement) {
-            if (/\bfinal\b/i.test(el.textContent ?? "")) { ids.add(m[1]); break; }
-          }
+          if (m) ids.add(m[1]);
         });
 
-        // Strategy 2: search raw HTML for schedule IDs near "FINAL" text
-        // (catches React components that use onClick instead of href)
+        // Strategy 2: raw HTML search — catches any remaining edge cases
         if (ids.size === 0) {
           const html = document.body.innerHTML;
           const pat  = /\/schedule\/([A-Za-z0-9_-]{8,})/g;
