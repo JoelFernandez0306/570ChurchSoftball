@@ -702,7 +702,7 @@ async function main() {
     console.log(`\n  Discovering league games from: ${GC_ORG_SCHEDULE_URL}`);
     const { gameUrls } = await discoverSchedule(page, GC_ORG_SCHEDULE_URL, teamBase);
     for (const url of gameUrls) {
-      const id = url.match(/\/schedule\/([^/]+)\//)?.[1];
+      const id = url.match(/\/schedule\/([A-Za-z0-9_-]{8,})(?:\/|$)/)?.[1];
       if (id) gameIdSet.add(id);
     }
     console.log(`  League games found: ${gameIdSet.size}`);
@@ -718,7 +718,7 @@ async function main() {
       console.log(`\n  Discovering: ${norm}`);
       const { gameUrls, teamUrls } = await discoverSchedule(page, norm);
       for (const url of gameUrls) {
-        const id = url.match(/\/schedule\/([^/]+)\//)?.[1];
+        const id = url.match(/\/schedule\/([A-Za-z0-9_-]{8,})(?:\/|$)/)?.[1];
         if (id) gameIdSet.add(id);
       }
       for (const url of teamUrls) {
