@@ -452,8 +452,9 @@ async function scrapeBoxScore(page, boxScoreUrl) {
     .waitFor({ timeout: 10000 }).then(() => true).catch(() => false);
 
   if (!found) {
-    if (DEBUG) await page.screenshot({ path: "gc-stats-debug.png" });
-    console.warn("    Box score not available (LINEUP not found) — will retry next run.");
+    const sample = await page.evaluate(() => document.body.innerText.slice(0, 600));
+    console.warn(`    Box score not available (LINEUP not found). Page: ${sample.replace(/\n+/g, " | ").slice(0, 300)}`);
+    await page.screenshot({ path: "gc-stats-debug.png" });
     return [];
   }
   await page.waitForTimeout(300);
@@ -761,7 +762,9 @@ async function main() {
 
   for (let gi = 0; gi < gameIdsToScrape.length; gi++) {
     const gameId      = gameIdsToScrape[gi];
-    const boxScoreUrl = `${schedBase}/schedule/${gameId}/box-score`;
+    // Always use the team base URL for box-score pages — the org-level URL
+    // doesn't reliably render the LINEUP table in headless mode.
+    const boxScoreUrl = `${teamBase}/schedule/${gameId}/box-score`;
     console.log(`\n  ── Game ${gi + 1}/${gameIdsToScrape.length}: ${boxScoreUrl}`);
 
     const gameRows = await scrapeBoxScore(page, boxScoreUrl);
