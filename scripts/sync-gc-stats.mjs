@@ -286,11 +286,11 @@ async function discoverSchedule(page, scheduleUrl, baseUrlOverride = null) {
   } catch (e) {
     console.warn("  Schedule load warning:", e.message);
   }
-  // Wait for the SPA to fire its schedule XHR
-  await page.waitForTimeout(5000);
+  // Org pages are heavier — give them extra time to render
+  await page.waitForTimeout(scheduleUrl.includes("/organizations/") ? 8000 : 5000);
   page.off("response", handler);
 
-  // ── Discover team URLs from the DOM (works whether or not API returned data) ─
+  // ── Discover team URLs from the DOM (team pages only) ───────────────────────
   const domTeamUrls = await page.evaluate(() => {
     const pat = /^https:\/\/web\.gc\.com\/teams\/[^/]+\/[^/]+\/schedule$/;
     return [...new Set(
@@ -301,9 +301,33 @@ async function discoverSchedule(page, scheduleUrl, baseUrlOverride = null) {
   });
 
   if (!scheduleData) {
-    // Without API data we have no game dates, so we can't separate past from future.
-    // Return only team URLs for snowball discovery; game links are skipped to avoid
-    // including unplayed games. The next team's API intercept will pick up shared games.
+    // ── Org page fallback: find "Final" game links directly from the DOM ────────
+    // The org schedule page renders game cards with "FINAL" text for completed
+    // games — no date info needed, just look for that label.
+    if (scheduleUrl.includes("/organizations/")) {
+      console.log("  API miss on org page — scanning DOM for Final game links...");
+      const orgBase    = scheduleUrl.replace(/\/schedule$/, "");
+      const finalGameIds = await page.evaluate(() => {
+        const ids = new Set();
+        document.querySelectorAll("a[href]").forEach(a => {
+          // Game links on org pages: /organizations/{orgId}/schedule/{gameId}
+          const m = a.href.match(/\/schedule\/([A-Za-z0-9_-]{8,})(?:\/|$)/);
+          if (!m) return;
+          // Only include if the link's ancestor contains "FINAL"
+          for (let el = a; el && el !== document.body; el = el.parentElement) {
+            if (/\bfinal\b/i.test(el.textContent ?? "")) { ids.add(m[1]); break; }
+          }
+        });
+        return [...ids];
+      });
+      console.log(`  Found ${finalGameIds.length} Final game(s) via DOM.`);
+      return {
+        gameUrls: finalGameIds.map(id => `${orgBase}/schedule/${id}`),
+        teamUrls: [],
+      };
+    }
+
+    // Team page fallback: no date info, skip game links to avoid including future games
     console.warn(`  ⚠️  API intercept missed for ${scheduleUrl} — skipping game links (no date info).`);
     console.warn(`     ${domTeamUrls.length} team URL(s) from DOM still queued for discovery.`);
     return { gameUrls: [], teamUrls: domTeamUrls };
