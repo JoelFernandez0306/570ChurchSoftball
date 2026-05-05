@@ -308,45 +308,52 @@ async function discoverSchedule(page, scheduleUrl, baseUrlOverride = null) {
       console.log("  API miss on org page — scanning DOM for Final game links...");
       const orgBase = scheduleUrl.replace(/\/schedule$/, "");
 
-      // Wait for at least one game card to render before scanning
-      const gameCardsLoaded = await page
-        .locator("[data-testid='organization-event']")
-        .first()
-        .waitFor({ timeout: 20000 })
-        .then(() => true)
-        .catch(() => false);
-
-      if (!gameCardsLoaded) {
-        const pageText = await page.evaluate(() => document.body.innerText.slice(0, 500));
-        console.warn(`  Game cards never appeared. Page text: ${pageText.replace(/\n+/g, " | ").slice(0, 200)}`);
+      // Step 1: wait for game card skeletons to appear
+      const cardsFound = await page.locator("[data-testid='organization-event']").first()
+        .waitFor({ timeout: 20000 }).then(() => true).catch(() => false);
+      if (!cardsFound) {
+        console.warn("  Game cards never appeared — session may have expired or page failed to load.");
         await page.screenshot({ path: "gc-stats-debug.png" });
         return { gameUrls: [], teamUrls: [] };
       }
 
-      // Scroll to load any lazy-rendered cards further down the schedule
+      // Step 2: GC loads game statuses (FINAL/score) asynchronously AFTER the card skeleton.
+      // Wait specifically for "FINAL" text to appear — up to 15 more seconds.
+      const finalFound = await page.locator("span:text-is('FINAL')").first()
+        .waitFor({ timeout: 15000 }).then(() => true).catch(() => false);
+      console.log(`  "FINAL" status loaded: ${finalFound}`);
+
+      // Step 3: scroll to reveal any games further down the schedule
       await page.evaluate(() => window.scrollTo(0, document.body.scrollHeight));
       await page.waitForTimeout(1500);
       await page.evaluate(() => window.scrollTo(0, 0));
+      await page.waitForTimeout(500);
 
+      // Step 4: walk UP from each "FINAL" span to its parent anchor and extract game ID
       const finalGameIds = await page.evaluate(() => {
         const ids = new Set();
 
-        // Strategy 1: GC renders each game as <a data-testid="organization-event">.
-        // "FINAL" is a <span> INSIDE the anchor, so check a.textContent directly.
-        document.querySelectorAll("a[data-testid='organization-event'], a[href*='/schedule/']").forEach(a => {
-          if (!/\bfinal\b/i.test(a.textContent ?? "")) return;
-          const m = a.href.match(/\/schedule\/([A-Za-z0-9_-]{8,})(?:\/|$)/);
-          if (m) ids.add(m[1]);
+        // Primary: find spans whose text is exactly "FINAL", walk up to the game anchor
+        document.querySelectorAll("span").forEach(span => {
+          if (span.textContent?.trim() !== "FINAL") return;
+          let node = span.parentElement;
+          while (node && node !== document.body) {
+            if (node.tagName === "A" && node.href) {
+              const m = node.href.match(/\/schedule\/([A-Za-z0-9_-]{8,})(?:\/|$)/);
+              if (m) { ids.add(m[1]); break; }
+            }
+            node = node.parentElement;
+          }
         });
 
-        // Strategy 2: raw HTML search — catches any remaining edge cases
+        // Fallback: raw HTML search around "FINAL" text
         if (ids.size === 0) {
           const html = document.body.innerHTML;
           const pat  = /\/schedule\/([A-Za-z0-9_-]{8,})/g;
           let m;
           while ((m = pat.exec(html)) !== null) {
-            const ctx = html.slice(Math.max(0, m.index - 800), m.index + 800);
-            if (/final/i.test(ctx)) ids.add(m[1]);
+            const ctx = html.slice(Math.max(0, m.index - 1000), m.index + 1000);
+            if (/FINAL/.test(ctx)) ids.add(m[1]);
           }
         }
 
