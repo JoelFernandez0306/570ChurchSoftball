@@ -1,19 +1,20 @@
 /**
  * sync-gc-stats.mjs
  *
- * Authenticated per-game scraper:
+ * Box-score scraper for all league teams:
  *   1. Loads GC session (gc-session.json or GC_SESSION base64 env var)
- *   2. Navigates to each team's schedule page to discover games
- *   3. Deduplicates games by game ID (same game appears on both teams' schedules)
- *   4. For each game on/after GC_SEASON_START, scrapes batting stats for BOTH teams
- *   5. Aggregates per-player season totals and upserts to Supabase
+ *   2. Navigates to the org schedule page to discover all past games
+ *   3. For each unscraped past game, loads the public /box-score page
+ *   4. Extracts AB, R, H, 2B, 3B, HR, RBI, BB, SO for every player (both teams)
+ *   5. Stores per-game rows in player_game_stats, aggregates to player_batting_stats
  *
  * Required env vars:
  *   SUPABASE_URL              — e.g. https://xxxx.supabase.co
  *   SUPABASE_SERVICE_ROLE_KEY — service role key
- *   GC_TEAM_URLS              — comma-separated GC schedule page URLs for every team
- *                               e.g. https://web.gc.com/teams/ABC/team-a/schedule,https://web.gc.com/teams/XYZ/team-b/schedule
- *                               (also accepts legacy GC_TEAM_URL for a single team)
+ *   GC_TEAM_URLS              — at least one team schedule URL (used as fallback
+ *                               discovery and for session verification)
+ *   GC_ORG_SCHEDULE_URL       — org schedule page, e.g.
+ *                               https://web.gc.com/organizations/998p0wVMzCOT/schedule
  *
  * Auth (one of):
  *   gc-session.json file  — created by: node scripts/gc-save-session.mjs
@@ -21,8 +22,7 @@
  *
  * Optional:
  *   GC_SEASON_START — YYYY-MM-DD cutoff; games before this date are skipped
- *                     e.g. 2026-05-01  (set as a GitHub secret or env var)
- *   GC_DEBUG=1      — save a debug screenshot after each game scrape
+ *   GC_DEBUG=1      — save debug screenshots on failure
  */
 
 import { chromium } from "playwright";
@@ -373,10 +373,150 @@ async function discoverSchedule(page, scheduleUrl, baseUrlOverride = null) {
   };
 }
 
+// ── Box score scraper ─────────────────────────────────────────────────────────
+// Extracts batting stats from the public /box-score page (no team-admin needed).
+// Returns: [{ player_name, team_name, ab, r, h, rbi, bb, so, singles, doubles, triples, hr }]
+
+async function scrapeBoxScore(page, boxScoreUrl) {
+  try {
+    await page.goto(boxScoreUrl, { waitUntil: "domcontentloaded", timeout: 60000 });
+  } catch (e) {
+    console.warn("    Load warning:", e.message);
+  }
+
+  const found = await page.locator("text=LINEUP").first()
+    .waitFor({ timeout: 10000 }).then(() => true).catch(() => false);
+
+  if (!found) {
+    if (DEBUG) await page.screenshot({ path: "gc-stats-debug.png" });
+    console.warn("    Box score not available (LINEUP not found) — will retry next run.");
+    return [];
+  }
+  await page.waitForTimeout(300);
+
+  return await page.evaluate(() => {
+    function cleanName(raw) {
+      // "Aaron Eby #27 (SS)" → "Aaron Eby"
+      return raw.replace(/\s*#\d+.*$/, "").replace(/\s*\([^)]*\)\s*/g, "").trim();
+    }
+
+    // Collect all visible leaf text nodes with screen positions
+    const nodes = [];
+    document.querySelectorAll("*").forEach(el => {
+      if (el.children.length > 0 || !el.offsetParent) return;
+      const text = el.textContent?.trim();
+      if (!text) return;
+      const r = el.getBoundingClientRect();
+      if (r.top > 0 && r.left > 0) nodes.push({ text, x: Math.round(r.left), y: Math.round(r.top) });
+    });
+
+    // Group nodes into visual rows by Y coordinate (within 6 px)
+    const rowMap = new Map();
+    for (const n of nodes) {
+      const k = [...rowMap.keys()].find(k => Math.abs(k - n.y) <= 6);
+      if (k !== undefined) rowMap.get(k).push(n);
+      else rowMap.set(n.y, [n]);
+    }
+    const rows = [...rowMap.values()]
+      .sort((a, b) => a[0].y - b[0].y)
+      .map(r => r.sort((a, b) => a.x - b.x));
+
+    // Find LINEUP header rows — each has both "LINEUP" and "AB" in the same row
+    const lineupIdxs = [];
+    rows.forEach((row, i) => {
+      const texts = row.map(n => n.text);
+      if (texts.some(t => /^lineup$/i.test(t)) && texts.includes("AB")) lineupIdxs.push(i);
+    });
+    if (!lineupIdxs.length) return [];
+
+    // Use X positions of the two LINEUP headers to split viewport into left/right teams
+    const mid = lineupIdxs.length >= 2
+      ? (rows[lineupIdxs[0]][0].x + rows[lineupIdxs[1]][0].x) / 2
+      : window.innerWidth / 2;
+
+    const results = [];
+
+    for (let ti = 0; ti < lineupIdxs.length; ti++) {
+      const lineupIdx = lineupIdxs[ti];
+      const inZone    = n => ti === 0 ? n.x < mid + 50 : n.x >= mid - 50;
+
+      // Team name: scan backward from the LINEUP row
+      let teamName = `Team ${ti + 1}`;
+      for (let i = lineupIdx - 1; i >= Math.max(0, lineupIdx - 8); i--) {
+        const cands = rows[i].filter(inZone);
+        if (cands.length === 1 && /[a-zA-Z]{3}/.test(cands[0].text) && !/^\d+$/.test(cands[0].text)) {
+          teamName = cands[0].text.replace(/\.$/, "").trim();
+          break;
+        }
+      }
+
+      // noteMap: { "Zach Zimmerman": { "2B": 1, "HR": 2 }, ... }
+      const noteMap = {};
+      const playerRows = [];
+      const end = lineupIdxs[ti + 1] ?? rows.length;
+
+      for (let i = lineupIdx + 1; i < end; i++) {
+        const cells = rows[i].filter(inZone).map(n => n.text);
+        if (!cells.length) continue;
+        const first = cells[0];
+
+        // Note lines: "2B: Lee Stanziale, Mike Smith" or "HR: Zach Zimmerman 2"
+        const noteMatch = first.match(/^(2B|3B|HR):\s*(.*)$/i);
+        if (noteMatch) {
+          const type = noteMatch[1].toUpperCase();
+          const full  = (noteMatch[2] + " " + cells.slice(1).join(" ")).trim();
+          for (const part of full.split(",")) {
+            const m = part.trim().match(/^(.+?)\s*(\d+)?\s*$/);
+            if (!m) continue;
+            const name  = m[1].trim();
+            const count = parseInt(m[2] ?? "1", 10);
+            if (!noteMap[name]) noteMap[name] = {};
+            noteMap[name][type] = (noteMap[name][type] ?? 0) + count;
+          }
+          continue;
+        }
+
+        if (/^team$/i.test(first)) continue;                  // totals row
+        if (/^(TB|SF|E|SB|CS|HBP|GDP):/i.test(first)) continue;
+        if (!/[a-zA-Z]{2}/.test(first)) continue;
+
+        const nums = cells.slice(1).map(t => parseInt(t, 10));
+        if (nums.filter(n => !isNaN(n)).length < 4) continue;
+        const [ab = 0, r = 0, h = 0, rbi = 0, bb = 0, so = 0] = nums;
+
+        const playerName = cleanName(first);
+        if (!playerName || playerName.length < 2) continue;
+        playerRows.push({ player_name: playerName, team_name: teamName, ab, r, h, rbi, bb, so });
+      }
+
+      // Match 2B/3B/HR notes to players by last name or full-name substring
+      for (const row of playerRows) {
+        let doubles = 0, triples = 0, hr = 0;
+        const pLower = row.player_name.toLowerCase();
+        const pLast  = pLower.split(/\s+/).pop();
+        for (const [noteName, counts] of Object.entries(noteMap)) {
+          const nLower = noteName.toLowerCase().trim();
+          if (pLower.includes(nLower) || (pLast.length > 2 && nLower.includes(pLast))) {
+            doubles += counts["2B"] ?? 0;
+            triples += counts["3B"] ?? 0;
+            hr      += counts["HR"] ?? 0;
+          }
+        }
+        row.doubles = doubles;
+        row.triples = triples;
+        row.hr      = hr;
+        row.singles = Math.max(0, row.h - doubles - triples - hr);
+      }
+
+      results.push(...playerRows);
+    }
+    return results;
+  });
+}
+
 // ── Per-player season aggregation ────────────────────────────────────────────
 
 function aggregateStats(allGameRows) {
-  // allGameRows: [{ player_name, team_name, pa, ab, qab, ... }, ...]
   const byPlayer = new Map();
 
   for (const row of allGameRows) {
@@ -386,61 +526,33 @@ function aggregateStats(allGameRows) {
     }
     const agg = byPlayer.get(key);
     agg.gp += 1;
-
-    // Sum integer stats
-    for (const col of ["pa","ab","qab","hhb","ld","fb","gb","lob",
-                        "two_out_rbi","xbh","tb","ps","two_s3","six_plus","gidp","ci",
-                        "h","singles","doubles","triples","hr","rbi"]) {
+    for (const col of ["ab","r","h","rbi","bb","so","singles","doubles","triples","hr"]) {
       agg[col] = (agg[col] ?? 0) + (row[col] ?? 0);
     }
-
-    // Accumulate for weighted rate stats
-    agg._babip_sum  = (agg._babip_sum  ?? 0) + (row.babip  !== null ? row.babip  * row.pa : 0);
-    agg._barisp_sum = (agg._barisp_sum ?? 0) + (row.ba_risp !== null ? row.ba_risp * row.pa : 0);
-    agg._pa_for_rates = (agg._pa_for_rates ?? 0) + (row.pa ?? 0);
   }
 
   const now = new Date().toISOString();
 
   return [...byPlayer.values()].map(agg => {
-    const pa = agg.pa ?? 0;
     const ab = agg.ab ?? 0;
     const h  = agg.h  ?? 0;
-
     return {
-      player_name:  agg.player_name,
-      team_name:    agg.team_name,
-      season_type:  agg.season_type,
-      gp:           agg.gp,
-      pa, ab,
-      avg:          ab > 0 ? h / ab : null,
-      obp:          null, // need BB + HBP + SF from Standard tab
-      slg:          ab > 0 ? (agg.tb ?? 0) / ab : null,
-      ops:          null,
+      player_name: agg.player_name,
+      team_name:   agg.team_name,
+      season_type: agg.season_type,
+      gp:          agg.gp,
+      ab,
+      r:           agg.r       ?? 0,
       h,
-      singles:      agg.singles   ?? 0,
-      doubles:      agg.doubles   ?? 0,
-      triples:      agg.triples   ?? 0,
-      hr:           agg.hr        ?? 0,
-      rbi:          agg.rbi       ?? 0,
-      qab:          agg.qab       ?? 0,
-      hhb:          agg.hhb       ?? 0,
-      ld:           agg.ld        ?? 0,
-      fb:           agg.fb        ?? 0,
-      gb:           agg.gb        ?? 0,
-      babip:        agg._pa_for_rates > 0 ? agg._babip_sum  / agg._pa_for_rates : null,
-      ba_risp:      agg._pa_for_rates > 0 ? agg._barisp_sum / agg._pa_for_rates : null,
-      lob:          agg.lob        ?? 0,
-      two_out_rbi:  agg.two_out_rbi ?? 0,
-      xbh:          agg.xbh        ?? 0,
-      tb:           agg.tb         ?? 0,
-      ps:           agg.ps         ?? 0,
-      ps_pa:        pa > 0 ? (agg.ps ?? 0) / pa : null,
-      two_s3:       agg.two_s3     ?? 0,
-      six_plus:     agg.six_plus   ?? 0,
-      gidp:         agg.gidp       ?? 0,
-      ci:           agg.ci         ?? 0,
-      synced_at:    now,
+      singles:     agg.singles ?? 0,
+      doubles:     agg.doubles ?? 0,
+      triples:     agg.triples ?? 0,
+      hr:          agg.hr      ?? 0,
+      rbi:         agg.rbi     ?? 0,
+      bb:          agg.bb      ?? 0,
+      so:          agg.so      ?? 0,
+      avg:         ab > 0 ? h / ab : null,
+      synced_at:   now,
     };
   });
 }
@@ -514,77 +626,60 @@ async function main() {
   }
   console.log("  ✓ Session valid\n");
 
-  const EXCLUDED_UI = [
-    "BOX SCORE","GAME STATS","BATTING","PITCHING","FIELDING",
-    "STANDARD","ADVANCED","PLAYS","VIDEOS","RECAP","INSIGHTS",
-    "INFO","STARTING LINEUP","EDIT STATS","HOME","SCHEDULE",
-    "TEAM","STATS","OPPONENTS","TOOLS","GET THE APP","SIGN IN",
-    "SIGN UP","TRY FOR FREE","SUPPORT","ACCOUNT","SIGN OUT",
-    "BUY A TEAM PASS","BACK TO SCHEDULE","ADD EVENT",
-  ];
+  // ── Discover all past game IDs from the org schedule ────────────────────────
+  const gameIdSet = new Set();
 
-  const gameUrlByGameId = new Map();
-
-  // Game-stats URLs need a team context. Use the first seed team URL as the base
-  // (game pages show both teams regardless of which team's URL you use to access them).
-  const teamBaseUrl = GC_TEAM_URLS[0].replace(/\/schedule$/, "");
+  // Box score base: org URL is preferred; fall back to team URL
+  const orgBase    = GC_ORG_SCHEDULE_URL ? GC_ORG_SCHEDULE_URL.replace(/\/schedule$/, "") : null;
+  const teamBase   = GC_TEAM_URLS[0].replace(/\/schedule$/, "");
+  const schedBase  = orgBase ?? teamBase;
 
   if (GC_ORG_SCHEDULE_URL) {
-    // ── Primary: org schedule page — discovers ALL league games in one load ──────
-    console.log(`\n  Discovering all league games from org schedule: ${GC_ORG_SCHEDULE_URL}`);
-    const { gameUrls } = await discoverSchedule(page, GC_ORG_SCHEDULE_URL, teamBaseUrl);
+    console.log(`\n  Discovering league games from: ${GC_ORG_SCHEDULE_URL}`);
+    const { gameUrls } = await discoverSchedule(page, GC_ORG_SCHEDULE_URL, teamBase);
     for (const url of gameUrls) {
-      const gameId = url.match(/\/schedule\/([^/]+)\/game-stats/)?.[1];
-      if (gameId && !gameUrlByGameId.has(gameId)) gameUrlByGameId.set(gameId, url);
+      const id = url.match(/\/schedule\/([^/]+)\//)?.[1];
+      if (id) gameIdSet.add(id);
     }
-    console.log(`  League games discovered: ${gameUrlByGameId.size}`);
+    console.log(`  League games found: ${gameIdSet.size}`);
   } else {
-    // ── Fallback: snowball through individual team schedules ──────────────────────
     console.log(`\n  GC_ORG_SCHEDULE_URL not set — snowballing from team schedules.`);
-    const visitedTeamUrls = new Set();
-    const teamQueue = [...GC_TEAM_URLS];
-
-    while (teamQueue.length > 0) {
-      const teamUrl = teamQueue.shift();
-      const normalised = teamUrl.split("?")[0].replace(/\/$/, "");
-      if (visitedTeamUrls.has(normalised)) continue;
-      visitedTeamUrls.add(normalised);
-
-      console.log(`\n  Discovering: ${normalised}`);
-      const { gameUrls, teamUrls } = await discoverSchedule(page, normalised);
-
+    const visited = new Set();
+    const queue   = [...GC_TEAM_URLS];
+    while (queue.length > 0) {
+      const teamUrl = queue.shift();
+      const norm = teamUrl.split("?")[0].replace(/\/$/, "");
+      if (visited.has(norm)) continue;
+      visited.add(norm);
+      console.log(`\n  Discovering: ${norm}`);
+      const { gameUrls, teamUrls } = await discoverSchedule(page, norm);
       for (const url of gameUrls) {
-        const gameId = url.match(/\/schedule\/([^/]+)\/game-stats/)?.[1];
-        if (gameId && !gameUrlByGameId.has(gameId)) gameUrlByGameId.set(gameId, url);
+        const id = url.match(/\/schedule\/([^/]+)\//)?.[1];
+        if (id) gameIdSet.add(id);
       }
       for (const url of teamUrls) {
-        const norm = url.split("?")[0].replace(/\/$/, "");
-        if (!visitedTeamUrls.has(norm)) teamQueue.push(url);
+        if (!visited.has(url.split("?")[0].replace(/\/$/, ""))) queue.push(url);
       }
     }
-    console.log(`\n  Teams visited: ${visitedTeamUrls.size}`);
+    console.log(`\n  Teams visited: ${visited.size}`);
   }
 
-  const allPastGameIds = [...gameUrlByGameId.keys()];
+  const allPastGameIds = [...gameIdSet];
 
   if (allPastGameIds.length === 0) {
-    console.log("\nℹ️  No past games found in schedule — nothing to sync.");
+    console.log("\nℹ️  No past games found — nothing to sync.");
     await browser.close();
     process.exit(0);
   }
 
-  // ── Check which game IDs are already stored in player_game_stats ────────────
-  // Query in batches to stay within Supabase URL length limits.
+  // ── Check which games are already in player_game_stats ───────────────────────
   const alreadyScraped = new Set();
   for (let i = 0; i < allPastGameIds.length; i += 100) {
-    const batch = allPastGameIds.slice(i, i + 100);
     const { data, error } = await supabase
       .from("player_game_stats")
       .select("game_id")
-      .in("game_id", batch);
-    if (!error && data) {
-      for (const row of data) alreadyScraped.add(row.game_id);
-    }
+      .in("game_id", allPastGameIds.slice(i, i + 100));
+    if (!error && data) for (const row of data) alreadyScraped.add(row.game_id);
   }
 
   const gameIdsToScrape = allPastGameIds.filter(id => !alreadyScraped.has(id));
@@ -595,140 +690,34 @@ async function main() {
 
   if (gameIdsToScrape.length === 0) {
     console.log("\n✅ All past games already scraped.");
-  } else {
-    gameIdsToScrape.forEach((id, i) => console.log(`    ${i + 1}. ${gameUrlByGameId.get(id)}`));
   }
 
-  // ── Scrape only new games, store per-game rows immediately ──────────────────
+  // ── Scrape box scores for new games ─────────────────────────────────────────
   let newRowsStored = 0;
 
   for (let gi = 0; gi < gameIdsToScrape.length; gi++) {
-    const gameId  = gameIdsToScrape[gi];
-    const gameUrl = gameUrlByGameId.get(gameId);
-    console.log(`\n  ── Game ${gi + 1}/${gameIdsToScrape.length} ──────────────────────────`);
-    console.log(`     ${gameUrl}`);
+    const gameId      = gameIdsToScrape[gi];
+    const boxScoreUrl = `${schedBase}/schedule/${gameId}/box-score`;
+    console.log(`\n  ── Game ${gi + 1}/${gameIdsToScrape.length}: ${boxScoreUrl}`);
 
-    try {
-      await page.goto(gameUrl, { waitUntil: "domcontentloaded", timeout: 60000 });
-    } catch (e) {
-      console.warn("    Load warning:", e.message);
-    }
+    const gameRows = await scrapeBoxScore(page, boxScoreUrl);
 
-    const landedUrl = page.url();
-    console.log(`    Landed: ${landedUrl}`);
-    if (landedUrl.includes("/login") || landedUrl.includes("/sign-up")) {
-      console.error("    ❌ Redirected to login — session may be expired. Skipping.");
-      await page.screenshot({ path: "gc-stats-debug.png", fullPage: false });
+    if (gameRows.length === 0) {
+      console.warn("    No data — will retry next run.");
       continue;
     }
 
-    // Wait for Batting tab to appear
-    const battingFound = await page.locator(
-      'button, [role="tab"], [role="button"]'
-    ).filter({ hasText: /^batting$/i }).first().waitFor({ timeout: 15000 }).then(() => true).catch(() => false);
+    const teams = [...new Set(gameRows.map(r => r.team_name))];
+    console.log(`    ✓ ${gameRows.length} players across: ${teams.join(" | ")}`);
 
-    if (!battingFound) {
-      console.warn("    Batting tab not found — stats not yet available, will retry next run.");
-      if (DEBUG) {
-        await page.screenshot({ path: "gc-stats-debug.png", fullPage: false });
-        const pageText = await page.evaluate(() => document.body.innerText.slice(0, 1000));
-        console.log("    Page text sample:", pageText.replace(/\n+/g, " | ").slice(0, 400));
-      }
-      continue; // don't mark as scraped — retry next run
-    }
-
-    // Find both team buttons
-    const teamNames = await page.evaluate((excluded) => {
-      const seen = new Set();
-      const results = [];
-      for (const el of document.querySelectorAll('button, [role="tab"], [role="button"]')) {
-        const text = el.textContent?.trim() ?? "";
-        if (text.length < 4 || text.length > 55) continue;
-        if (text.includes("@") || text.includes("Back to") || text.includes("©")) continue;
-        if (!/[a-zA-Z]{3}/.test(text)) continue;
-        if (excluded.includes(text.toUpperCase())) continue;
-        if (seen.has(text)) continue;
-        seen.add(text);
-        results.push(text);
-      }
-      return results.slice(0, 2);
-    }, EXCLUDED_UI);
-
-    console.log(`    Teams: ${teamNames.join(" | ") || "(auto)"}`);
-
-    const teamsToProcess = teamNames.length >= 2 ? teamNames : [null];
-    const gameRows = [];
-
-    for (const teamName of teamsToProcess) {
-      if (teamName) {
-        await tryClick(page, teamName, 5000);
-        await page.waitForTimeout(200);
-      }
-
-      // ── Standard tab: H, 1B, 2B, 3B, HR, RBI ────────────────────────────────
-      await tryClick(page, "Batting", 6000);
-      await page.waitForTimeout(600);
-      await tryClick(page, "Standard", 6000);
-      await page.waitForTimeout(600);
-      const standardRows = await extractAdvancedStats(page);
-
-      // ── Advanced tab: QAB, HHB, LD, FB, GB, BABIP, etc. ─────────────────────
-      await tryClick(page, "Advanced", 6000);
-      await page.waitForTimeout(600);
-      const advancedRows = await extractAdvancedStats(page);
-
-      const stdByPlayer = new Map(standardRows.map(r => [r["PLAYER"], r]));
-      const rows = advancedRows.length > 0 ? advancedRows : standardRows;
-
-      if (rows.length > 0) {
-        const inferredTeam = teamName ?? "Team";
-        console.log(`    ✓ ${inferredTeam}: ${rows.length} players (std=${standardRows.length} adv=${advancedRows.length})`);
-
-        for (const row of rows) {
-          const name = row["PLAYER"] ?? "";
-          const std  = stdByPlayer.get(name) ?? {};
-          gameRows.push({
-            game_id:      gameId,
-            player_name:  name,
-            team_name:    inferredTeam,
-            season_type:  SYNC_PHASE,
-            pa:           parseStat(row["PA"])  ?? parseStat(std["PA"]),
-            ab:           parseStat(row["AB"])  ?? parseStat(std["AB"]),
-            h:            parseStat(std["H"])   ?? 0,
-            singles:      parseStat(std["1B"])  ?? 0,
-            doubles:      parseStat(std["2B"])  ?? 0,
-            triples:      parseStat(std["3B"])  ?? 0,
-            hr:           parseStat(std["HR"])  ?? 0,
-            rbi:          parseStat(std["RBI"]) ?? 0,
-            qab:          parseStat(row["QAB"]),
-            hhb:          parseStat(row["HHB"]),
-            ld:           parseStat(row["LD"]),
-            fb:           parseStat(row["FB"]),
-            gb:           parseStat(row["GB"]),
-            babip:        parseRate(row["BABIP"]),
-            ba_risp:      parseRate(row["BA/RISP"]),
-            lob:          parseStat(row["LOB"]),
-            two_out_rbi:  parseStat(row["2OUTRBI"]),
-            xbh:          parseStat(row["XBH"]),
-            tb:           parseStat(row["TB"]),
-            ps:           parseStat(row["PS"]),
-            ps_pa:        parseRate(row["PS/PA"]),
-            two_s3:       parseStat(row["2S+3"]),
-            six_plus:     parseStat(row["6+"]),
-            gidp:         parseStat(row["GIDP"]),
-            ci:           parseStat(row["CI"]),
-          });
-        }
-      } else {
-        console.warn(`    ⚠️  No rows found for "${teamName ?? "default team"}"`);
-        if (DEBUG) {
-          await page.screenshot({ path: `gc-stats-debug-game${gi + 1}.png`, fullPage: true });
-        }
-      }
-    }
+    const rowsWithMeta = gameRows.map(r => ({
+      game_id:     gameId,
+      season_type: SYNC_PHASE,
+      ...r,
+    }));
 
     // Store per-game rows immediately — only if we got stats (so empty games retry next run)
-    if (gameRows.length > 0) {
+    if (rowsWithMeta.length > 0) {
       for (let i = 0; i < gameRows.length; i += 50) {
         const { error } = await supabase.from("player_game_stats").upsert(
           gameRows.slice(i, i + 50),
@@ -800,10 +789,10 @@ async function main() {
 
   console.log(`\n🏆 Sync complete — ${aggregated.length} players updated.`);
   aggregated
-    .sort((a, b) => (b.pa ?? 0) - (a.pa ?? 0))
+    .sort((a, b) => (b.ab ?? 0) - (a.ab ?? 0))
     .forEach(r => {
       const avg = r.avg !== null ? r.avg.toFixed(3).replace(/^0/, "") : "---";
-      console.log(`   ${r.player_name.padEnd(24)} ${String(r.team_name ?? "").padEnd(26)} GP=${r.gp} PA=${r.pa} AVG=${avg} QAB=${r.qab} PS=${r.ps}`);
+      console.log(`   ${r.player_name.padEnd(24)} ${String(r.team_name ?? "").padEnd(26)} GP=${r.gp} AB=${r.ab} H=${r.h} AVG=${avg} HR=${r.hr} RBI=${r.rbi}`);
     });
 }
 
