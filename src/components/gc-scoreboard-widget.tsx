@@ -28,19 +28,13 @@ export function GcScoreboardWidget({ widgetId }: GcScoreboardWidgetProps) {
     if (!container) return;
 
     function hidePastAndFutureGames() {
-      // Each game card is a direct child wrapper; a live game contains
-      // an element whose text matches "LIVE" (the red badge).
-      const cards = container!.querySelectorAll<HTMLElement>(
-        "[class*='game'], [class*='Game'], [class*='card'], [class*='Card'], [class*='event'], [class*='Event']"
-      );
-      // Fallback: treat every top-level child as a card
-      const targets = cards.length > 0 ? Array.from(cards) : Array.from(container!.children) as HTMLElement[];
+      // Wait until the widget has actually rendered something
+      if (container!.children.length === 0) return;
 
       // Find the outermost card ancestor that contains a "LIVE" text node
       const liveCards = new Set<HTMLElement>();
       container!.querySelectorAll("*").forEach((el) => {
         if (el.children.length === 0 && /^live$/i.test(el.textContent?.trim() ?? "")) {
-          // Walk up to find the card-level ancestor inside container
           let node: HTMLElement | null = el as HTMLElement;
           while (node && node.parentElement && node.parentElement !== container) {
             node = node.parentElement;
@@ -49,9 +43,9 @@ export function GcScoreboardWidget({ widgetId }: GcScoreboardWidgetProps) {
         }
       });
 
-      if (liveCards.size === 0) return; // no live games yet — don't hide anything
-
-      targets.forEach((card) => {
+      // Show only live game cards; hide everything when none are live
+      const topChildren = Array.from(container!.children) as HTMLElement[];
+      topChildren.forEach((card) => {
         const isLive = liveCards.has(card) || [...liveCards].some((lc) => card.contains(lc));
         card.style.display = isLive ? "" : "none";
       });
