@@ -761,15 +761,15 @@ async function main() {
 
     // Store per-game rows immediately — only if we got stats (so empty games retry next run)
     if (rowsWithMeta.length > 0) {
-      for (let i = 0; i < gameRows.length; i += 50) {
+      for (let i = 0; i < rowsWithMeta.length; i += 50) {
         const { error } = await supabase.from("player_game_stats").upsert(
-          gameRows.slice(i, i + 50),
+          rowsWithMeta.slice(i, i + 50),
           { onConflict: "game_id,player_name,team_name", ignoreDuplicates: false }
         );
         if (error) console.error(`    ❌ player_game_stats upsert failed: ${error.message}`);
       }
-      newRowsStored += gameRows.length;
-      console.log(`    Stored ${gameRows.length} rows to player_game_stats.`);
+      newRowsStored += rowsWithMeta.length;
+      console.log(`    Stored ${rowsWithMeta.length} rows to player_game_stats.`);
     }
   }
 
