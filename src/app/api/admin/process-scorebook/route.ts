@@ -1,0 +1,84 @@
+import { NextRequest, NextResponse } from "next/server";
+import Anthropic from "@anthropic-ai/sdk";
+import { requireAdminPageAccess } from "@/lib/auth";
+
+const client = new Anthropic({ apiKey: process.env.ANTHROPIC_API_KEY });
+
+export async function POST(req: NextRequest) {
+  try {
+    await requireAdminPageAccess();
+  } catch {
+    return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+  }
+
+  const formData = await req.formData();
+  const file = formData.get("image") as File | null;
+  if (!file) return NextResponse.json({ error: "No image provided" }, { status: 400 });
+
+  const bytes = await file.arrayBuffer();
+  const base64 = Buffer.from(bytes).toString("base64");
+  const mediaType = (file.type || "image/jpeg") as "image/jpeg" | "image/png" | "image/webp" | "image/gif";
+
+  const prompt = `You are analyzing a handwritten softball scorebook page.
+
+Extract the batting lineup stats for BOTH teams shown. Return ONLY valid JSON — no markdown, no explanation.
+
+Return this exact structure:
+{
+  "teams": [
+    {
+      "team_name": "Team name as written",
+      "players": [
+        {
+          "name": "Player name as written",
+          "ab": 0,
+          "r": 0,
+          "h": 0,
+          "rbi": 0,
+          "bb": 0,
+          "so": 0,
+          "crossed_out": false
+        }
+      ],
+      "notes": {
+        "2B": ["Player name"],
+        "3B": ["Player name"],
+        "HR": ["Player name 2"]
+      }
+    }
+  ]
+}
+
+Rules:
+- "crossed_out": true if the player row is scribbled out, crossed out, or marked as an error. Those rows should still be included but flagged.
+- For notes (2B/3B/HR): list player names as written. If a player hit multiple (e.g., 2 HRs), write "Name 2".
+- If a stat cell is crossed out but other cells are valid, still flag the whole row as crossed_out: true.
+- If you cannot read a number clearly, use 0.
+- Include TEAM totals row only if you want — it will be ignored.
+- Extract exactly what you see. Do not guess missing values.`;
+
+  const response = await client.messages.create({
+    model: "claude-sonnet-4-6",
+    max_tokens: 2048,
+    messages: [
+      {
+        role: "user",
+        content: [
+          { type: "image", source: { type: "base64", media_type: mediaType, data: base64 } },
+          { type: "text", text: prompt },
+        ],
+      },
+    ],
+  });
+
+  const text = response.content[0]?.type === "text" ? response.content[0].text : "";
+
+  try {
+    // Strip any accidental markdown fencing
+    const clean = text.replace(/^```(?:json)?\s*/i, "").replace(/\s*```\s*$/i, "").trim();
+    const data = JSON.parse(clean);
+    return NextResponse.json(data);
+  } catch {
+    return NextResponse.json({ error: "Claude returned invalid JSON", raw: text }, { status: 422 });
+  }
+}

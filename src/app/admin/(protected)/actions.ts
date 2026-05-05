@@ -737,3 +737,80 @@ export async function removeAdminAction(formData: FormData) {
 
   revalidatePath("/admin/dashboard");
 }
+
+// ── Scorebook upload stats submission ─────────────────────────────────────────
+
+export interface ScoreBookPlayerStat {
+  player_name: string;
+  team_name: string;
+  ab: number;
+  r: number;
+  h: number;
+  rbi: number;
+  bb: number;
+  so: number;
+  singles: number;
+  doubles: number;
+  triples: number;
+  hr: number;
+}
+
+export async function saveScoreBookStatsAction(
+  gameId: string,
+  seasonType: string,
+  players: ScoreBookPlayerStat[],
+) {
+  await requireAdminPageAccess();
+  const supabase = getServiceSupabaseClient();
+
+  if (!gameId || players.length === 0) throw new Error("Missing game ID or players.");
+
+  const now = new Date().toISOString();
+  const rows = players.map((p) => ({ ...p, game_id: gameId, season_type: seasonType, scraped_at: now }));
+
+  // Upsert per-game rows
+  for (let i = 0; i < rows.length; i += 50) {
+    const { error } = await supabase
+      .schema("league")
+      .from("player_game_stats")
+      .upsert(rows.slice(i, i + 50), { onConflict: "game_id,player_name,team_name", ignoreDuplicates: false });
+    if (error) throw new Error(`Failed to save stats: ${error.message}`);
+  }
+
+  // Re-aggregate season totals from all stored game rows for affected teams
+  const teams = [...new Set(players.map((p) => p.team_name))];
+  for (const team of teams) {
+    const { data: allRows, error: readErr } = await supabase
+      .schema("league")
+      .from("player_game_stats")
+      .select("player_name,ab,r,h,singles,doubles,triples,hr,rbi,bb,so")
+      .eq("team_name", team)
+      .eq("season_type", seasonType);
+    if (readErr) throw new Error(`Failed to read game stats: ${readErr.message}`);
+
+    const byPlayer = new Map<string, { gp: number; ab: number; r: number; h: number; singles: number; doubles: number; triples: number; hr: number; rbi: number; bb: number; so: number }>();
+    for (const row of allRows ?? []) {
+      const agg = byPlayer.get(row.player_name) ?? { gp: 0, ab: 0, r: 0, h: 0, singles: 0, doubles: 0, triples: 0, hr: 0, rbi: 0, bb: 0, so: 0 };
+      agg.gp++;
+      for (const col of ["ab","r","h","singles","doubles","triples","hr","rbi","bb","so"] as const) {
+        agg[col] += (row[col] ?? 0) as number;
+      }
+      byPlayer.set(row.player_name, agg);
+    }
+
+    const aggregated = [...byPlayer.entries()].map(([player_name, agg]) => {
+      const avg = agg.ab > 0 ? agg.h / agg.ab : null;
+      return { player_name, team_name: team, season_type: seasonType, synced_at: now, avg, ...agg };
+    });
+
+    for (let i = 0; i < aggregated.length; i += 50) {
+      const { error } = await supabase
+        .schema("league")
+        .from("player_batting_stats")
+        .upsert(aggregated.slice(i, i + 50), { onConflict: "player_name,team_name,season_type", ignoreDuplicates: false });
+      if (error) throw new Error(`Failed to aggregate stats: ${error.message}`);
+    }
+  }
+
+  revalidatePath("/stats");
+}

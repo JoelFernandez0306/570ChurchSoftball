@@ -6,6 +6,7 @@ const adminLinks = [
   { href: "/admin/rosters", label: "Create Rosters" },
   { href: "/admin/schedule", label: "Schedule Builder" },
   { href: "/admin/quick-result", label: "Quick Game Score" },
+  { href: "/admin/scorebook", label: "Upload Scorebook" },
   { href: "/admin/rules", label: "Create Rules" },
   { href: "/admin/standings", label: "Standings" },
   { href: "/admin/sms", label: "SMS" },
