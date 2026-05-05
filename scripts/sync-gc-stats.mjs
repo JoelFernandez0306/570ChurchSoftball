@@ -241,14 +241,18 @@ async function discoverSchedule(page, scheduleUrl) {
   console.log(`  Navigating to schedule: ${scheduleUrl}`);
   let scheduleData = null;
 
+  // Accept any JSON response that looks like GC schedule data — do NOT filter
+  // by URL because GC's schedule API endpoint does not contain "/schedule".
   const handler = async (response) => {
-    if (!response.url().includes("/schedule")) return;
     if (!(response.headers()["content-type"] ?? "").includes("json")) return;
     try {
       const json = await response.json();
-      if (Array.isArray(json) && json[0]?.event?.id) {
+      if (Array.isArray(json) && json.length > 0 && json[0]?.event?.id) {
         scheduleData = json;
-        if (DEBUG) console.log("    [DEBUG] First event keys:", Object.keys(json[0]?.event ?? {}));
+        if (DEBUG) {
+          console.log(`    [DEBUG] Schedule API: ${response.url()}`);
+          console.log(`    [DEBUG] First event keys: ${Object.keys(json[0]?.event ?? {}).join(", ")}`);
+        }
       }
     } catch { /* ignore */ }
   };
@@ -259,11 +263,11 @@ async function discoverSchedule(page, scheduleUrl) {
   } catch (e) {
     console.warn("  Schedule load warning:", e.message);
   }
-  await page.waitForTimeout(4000);
+  // Wait for the SPA to fire its schedule XHR
+  await page.waitForTimeout(5000);
   page.off("response", handler);
 
   // ── Discover team URLs from the DOM (works whether or not API returned data) ─
-  // GC schedule pages link to each team's profile; grab any /teams/{id}/{slug}/schedule links.
   const domTeamUrls = await page.evaluate(() => {
     const pat = /^https:\/\/web\.gc\.com\/teams\/[^/]+\/[^/]+\/schedule$/;
     return [...new Set(
@@ -274,12 +278,12 @@ async function discoverSchedule(page, scheduleUrl) {
   });
 
   if (!scheduleData) {
-    console.log("  API intercept missed — falling back to DOM game links.");
-    const domGameUrls = await page.evaluate(() => {
-      const links = Array.from(document.querySelectorAll("a[href*='/schedule/']"));
-      return links.map(a => a.href).filter(h => /\/schedule\/[^/]+\/game-stats/.test(h));
-    });
-    return { gameUrls: domGameUrls, teamUrls: domTeamUrls };
+    // Without API data we have no game dates, so we can't separate past from future.
+    // Return only team URLs for snowball discovery; game links are skipped to avoid
+    // including unplayed games. The next team's API intercept will pick up shared games.
+    console.warn(`  ⚠️  API intercept missed for ${scheduleUrl} — skipping game links (no date info).`);
+    console.warn(`     ${domTeamUrls.length} team URL(s) from DOM still queued for discovery.`);
+    return { gameUrls: [], teamUrls: domTeamUrls };
   }
 
   const baseUrl = scheduleUrl.replace(/\/schedule$/, "");
