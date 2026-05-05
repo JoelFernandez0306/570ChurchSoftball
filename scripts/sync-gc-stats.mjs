@@ -308,17 +308,25 @@ async function discoverSchedule(page, scheduleUrl, baseUrlOverride = null) {
       console.log("  API miss on org page — scanning DOM for Final game links...");
       const orgBase = scheduleUrl.replace(/\/schedule$/, "");
 
-      // Scroll to trigger any lazy-loaded game cards, then wait for content
+      // Wait for at least one game card to render before scanning
+      const gameCardsLoaded = await page
+        .locator("[data-testid='organization-event']")
+        .first()
+        .waitFor({ timeout: 20000 })
+        .then(() => true)
+        .catch(() => false);
+
+      if (!gameCardsLoaded) {
+        const pageText = await page.evaluate(() => document.body.innerText.slice(0, 500));
+        console.warn(`  Game cards never appeared. Page text: ${pageText.replace(/\n+/g, " | ").slice(0, 200)}`);
+        await page.screenshot({ path: "gc-stats-debug.png" });
+        return { gameUrls: [], teamUrls: [] };
+      }
+
+      // Scroll to load any lazy-rendered cards further down the schedule
       await page.evaluate(() => window.scrollTo(0, document.body.scrollHeight));
-      await page.waitForTimeout(2000);
+      await page.waitForTimeout(1500);
       await page.evaluate(() => window.scrollTo(0, 0));
-
-      // Log what's on the page so we can diagnose rendering issues
-      const pageText = await page.evaluate(() => document.body.innerText.slice(0, 800));
-      console.log(`  Page text: ${pageText.replace(/\n+/g, " | ").slice(0, 300)}`);
-
-      // Save a screenshot for diagnosis
-      await page.screenshot({ path: "gc-stats-debug.png", fullPage: false });
 
       const finalGameIds = await page.evaluate(() => {
         const ids = new Set();
