@@ -438,8 +438,13 @@ async function discoverSchedule(page, scheduleUrl, baseUrlOverride = null) {
 }
 
 // ── Box score scraper ─────────────────────────────────────────────────────────
-// Extracts batting stats from the public /box-score page (no team-admin needed).
-// Returns: [{ player_name, team_name, ab, r, h, rbi, bb, so, singles, doubles, triples, hr }]
+// GC renders box scores with AG Grid. DOM structure (confirmed from DevTools):
+//   .BoxScore__awayTeamName / .BoxScore__homeTeamName  — team headings
+//   .BoxScore__awayLineup / .BoxScore__homeLineup        — AG Grid batting tables
+//   .BoxScore__awayLineupExtra / .BoxScore__homeLineupExtra — 2B/3B/HR notes
+//
+// Each player row: [role="row"] > [role="gridcell"][col-id="AB|R|H|RBI|BB|SO"]
+// Player name: span.BoxScoreComponents__playerName inside col-id="player"
 
 async function scrapeBoxScore(page, boxScoreUrl) {
   try {
@@ -448,125 +453,112 @@ async function scrapeBoxScore(page, boxScoreUrl) {
     console.warn("    Load warning:", e.message);
   }
 
-  const found = await page.locator("text=LINEUP").first()
-    .waitFor({ timeout: 10000 }).then(() => true).catch(() => false);
+  // Wait for AG Grid player cells to appear (faster signal than "LINEUP" header)
+  const found = await page.locator(".BoxScoreComponents__playerName").first()
+    .waitFor({ timeout: 25000 }).then(() => true).catch(() => false);
 
   if (!found) {
-    const sample = await page.evaluate(() => document.body.innerText.slice(0, 600));
-    console.warn(`    Box score not available (LINEUP not found). Page: ${sample.replace(/\n+/g, " | ").slice(0, 300)}`);
+    const sample = await page.evaluate(() => document.body.innerText.slice(0, 400));
+    console.warn(`    Box score not available. Page: ${sample.replace(/\n+/g, " | ").slice(0, 200)}`);
     await page.screenshot({ path: "gc-stats-debug.png" });
     return [];
   }
   await page.waitForTimeout(300);
 
   return await page.evaluate(() => {
-    function cleanName(raw) {
-      // "Aaron Eby #27 (SS)" → "Aaron Eby"
-      return raw.replace(/\s*#\d+.*$/, "").replace(/\s*\([^)]*\)\s*/g, "").trim();
+    function stat(el, colId) {
+      return parseInt(el.querySelector(`[role="gridcell"][col-id="${colId}"]`)?.textContent?.trim() ?? "0", 10) || 0;
     }
 
-    // Collect all visible leaf text nodes with screen positions
-    const nodes = [];
-    document.querySelectorAll("*").forEach(el => {
-      if (el.children.length > 0 || !el.offsetParent) return;
-      const text = el.textContent?.trim();
-      if (!text) return;
-      const r = el.getBoundingClientRect();
-      if (r.top > 0 && r.left > 0) nodes.push({ text, x: Math.round(r.left), y: Math.round(r.top) });
-    });
-
-    // Group nodes into visual rows by Y coordinate (within 6 px)
-    const rowMap = new Map();
-    for (const n of nodes) {
-      const k = [...rowMap.keys()].find(k => Math.abs(k - n.y) <= 6);
-      if (k !== undefined) rowMap.get(k).push(n);
-      else rowMap.set(n.y, [n]);
+    function parseNotes(extraEl) {
+      // Returns { "2B": { "Zach Zimmerman": 2, ... }, "3B": {...}, "HR": {...} }
+      const map = {};
+      if (!extraEl) return map;
+      extraEl.querySelectorAll("div").forEach(div => {
+        const label = div.querySelector("span.Text__semibold")?.textContent
+          ?.replace(/ /g, "").replace(/:.*$/, "").trim();
+        if (!["2B", "3B", "HR"].includes(label)) return;
+        map[label] = {};
+        div.querySelectorAll(".BoxScoreComponents__extraPlayerStat").forEach(span => {
+          const text  = span.textContent?.replace(/,\s*$/, "").trim() ?? "";
+          const m     = text.match(/^(.+?)\s*(\d+)?\s*$/);
+          if (!m) return;
+          const name  = m[1].trim();
+          const count = parseInt(m[2] ?? "1", 10);
+          map[label][name] = (map[label][name] ?? 0) + count;
+        });
+      });
+      return map;
     }
-    const rows = [...rowMap.values()]
-      .sort((a, b) => a[0].y - b[0].y)
-      .map(r => r.sort((a, b) => a.x - b.x));
 
-    // Find LINEUP header rows — each has both "LINEUP" and "AB" in the same row
-    const lineupIdxs = [];
-    rows.forEach((row, i) => {
-      const texts = row.map(n => n.text);
-      if (texts.some(t => /^lineup$/i.test(t)) && texts.includes("AB")) lineupIdxs.push(i);
-    });
-    if (!lineupIdxs.length) return [];
-
-    // Use X positions of the two LINEUP headers to split viewport into left/right teams
-    const mid = lineupIdxs.length >= 2
-      ? (rows[lineupIdxs[0]][0].x + rows[lineupIdxs[1]][0].x) / 2
-      : window.innerWidth / 2;
+    function matchNote(playerName, noteMap) {
+      let doubles = 0, triples = 0, hr = 0;
+      const pLow  = playerName.toLowerCase();
+      const pLast = pLow.split(/\s+/).pop();
+      for (const [type, players] of Object.entries(noteMap)) {
+        for (const [noteName, count] of Object.entries(players)) {
+          const nLow = noteName.toLowerCase().trim();
+          if (pLow.includes(nLow) || (pLast.length > 2 && nLow.endsWith(pLast))) {
+            if (type === "2B") doubles += count;
+            if (type === "3B") triples += count;
+            if (type === "HR") hr      += count;
+          }
+        }
+      }
+      return { doubles, triples, hr };
+    }
 
     const results = [];
 
-    for (let ti = 0; ti < lineupIdxs.length; ti++) {
-      const lineupIdx = lineupIdxs[ti];
-      const inZone    = n => ti === 0 ? n.x < mid + 50 : n.x >= mid - 50;
+    const sides = [
+      { lineupSel: ".BoxScore__awayLineup", nameSel: ".BoxScore__awayTeamName", extraSel: ".BoxScore__awayLineupExtra" },
+      { lineupSel: ".BoxScore__homeLineup", nameSel: ".BoxScore__homeTeamName", extraSel: ".BoxScore__homeLineupExtra" },
+    ];
 
-      // Team name: scan backward from the LINEUP row
-      let teamName = `Team ${ti + 1}`;
-      for (let i = lineupIdx - 1; i >= Math.max(0, lineupIdx - 8); i--) {
-        const cands = rows[i].filter(inZone);
-        if (cands.length === 1 && /[a-zA-Z]{3}/.test(cands[0].text) && !/^\d+$/.test(cands[0].text)) {
-          teamName = cands[0].text.replace(/\.$/, "").trim();
-          break;
-        }
+    for (const { lineupSel, nameSel, extraSel } of sides) {
+      const lineup  = document.querySelector(lineupSel);
+      const nameEl  = document.querySelector(nameSel);
+      const extraEl = document.querySelector(extraSel);
+      if (!lineup || !nameEl) continue;
+
+      const teamName = nameEl.textContent?.replace(/\.$/, "").trim() ?? "";
+      const noteMap  = parseNotes(extraEl);
+
+      // Player rows are in ag-center-cols-container (not ag-floating-bottom which holds TEAM totals)
+      const bodyRows = lineup.querySelectorAll(".ag-center-cols-container [role='row']");
+
+      for (const row of bodyRows) {
+        const nameSpan = row.querySelector(".BoxScoreComponents__playerName");
+        if (!nameSpan) continue;
+        const playerName = nameSpan.textContent?.trim();
+        if (!playerName || /^team$/i.test(playerName)) continue;
+
+        const ab  = stat(row, "AB");
+        const r   = stat(row, "R");
+        const h   = stat(row, "H");
+        const rbi = stat(row, "RBI");
+        const bb  = stat(row, "BB");
+        const so  = stat(row, "SO");
+
+        const { doubles, triples, hr } = matchNote(playerName, noteMap);
+        results.push({
+          player_name: playerName,
+          team_name:   teamName,
+          ab, r, h, rbi, bb, so,
+          doubles, triples, hr,
+          singles: Math.max(0, h - doubles - triples - hr),
+        });
       }
+    }
 
-      // noteMap: { "Zach Zimmerman": { "2B": 1, "HR": 2 }, ... }
-      const noteMap = {};
-      const playerRows = [];
-      const end = lineupIdxs[ti + 1] ?? rows.length;
+    return results;
+  });
+}
 
-      for (let i = lineupIdx + 1; i < end; i++) {
-        const cells = rows[i].filter(inZone).map(n => n.text);
-        if (!cells.length) continue;
-        const first = cells[0];
-
-        // Note lines: "2B: Lee Stanziale, Mike Smith" or "HR: Zach Zimmerman 2"
-        const noteMatch = first.match(/^(2B|3B|HR):\s*(.*)$/i);
-        if (noteMatch) {
-          const type = noteMatch[1].toUpperCase();
-          const full  = (noteMatch[2] + " " + cells.slice(1).join(" ")).trim();
-          for (const part of full.split(",")) {
-            const m = part.trim().match(/^(.+?)\s*(\d+)?\s*$/);
-            if (!m) continue;
-            const name  = m[1].trim();
-            const count = parseInt(m[2] ?? "1", 10);
-            if (!noteMap[name]) noteMap[name] = {};
-            noteMap[name][type] = (noteMap[name][type] ?? 0) + count;
-          }
-          continue;
-        }
-
-        if (/^team$/i.test(first)) continue;                  // totals row
-        if (/^(TB|SF|E|SB|CS|HBP|GDP):/i.test(first)) continue;
-        if (!/[a-zA-Z]{2}/.test(first)) continue;
-
-        const nums = cells.slice(1).map(t => parseInt(t, 10));
-        if (nums.filter(n => !isNaN(n)).length < 4) continue;
-        const [ab = 0, r = 0, h = 0, rbi = 0, bb = 0, so = 0] = nums;
-
-        const playerName = cleanName(first);
-        if (!playerName || playerName.length < 2) continue;
-        playerRows.push({ player_name: playerName, team_name: teamName, ab, r, h, rbi, bb, so });
-      }
-
-      // Match 2B/3B/HR notes to players by last name or full-name substring
-      for (const row of playerRows) {
-        let doubles = 0, triples = 0, hr = 0;
-        const pLower = row.player_name.toLowerCase();
-        const pLast  = pLower.split(/\s+/).pop();
-        for (const [noteName, counts] of Object.entries(noteMap)) {
-          const nLower = noteName.toLowerCase().trim();
-          if (pLower.includes(nLower) || (pLast.length > 2 && nLower.includes(pLast))) {
-            doubles += counts["2B"] ?? 0;
-            triples += counts["3B"] ?? 0;
-            hr      += counts["HR"] ?? 0;
-          }
-        }
+// keep scrapeBoxScore clean — old unused functions removed above
+function _unused() {
+  // tryClick, triggerHorizontalRender, extractAdvancedStats removed
+}
         row.doubles = doubles;
         row.triples = triples;
         row.hr      = hr;
@@ -762,9 +754,8 @@ async function main() {
 
   for (let gi = 0; gi < gameIdsToScrape.length; gi++) {
     const gameId      = gameIdsToScrape[gi];
-    // Always use the team base URL for box-score pages — the org-level URL
-    // doesn't reliably render the LINEUP table in headless mode.
-    const boxScoreUrl = `${teamBase}/schedule/${gameId}/box-score`;
+    // Use org URL for box scores — confirmed to render AG Grid content correctly.
+    const boxScoreUrl = `${schedBase}/schedule/${gameId}/box-score`;
     console.log(`\n  ── Game ${gi + 1}/${gameIdsToScrape.length}: ${boxScoreUrl}`);
 
     const gameRows = await scrapeBoxScore(page, boxScoreUrl);
