@@ -234,11 +234,13 @@ function getEventDate(item) {
   return isNaN(d.getTime()) ? null : d;
 }
 
-async function discoverGameUrls(page, scheduleUrl) {
+// Returns { gameUrls, teamUrls } — gameUrls are game-stats pages to scrape,
+// teamUrls are other team schedule pages discovered from the API response
+// (used for snowball league-wide discovery).
+async function discoverSchedule(page, scheduleUrl) {
   console.log(`  Navigating to schedule: ${scheduleUrl}`);
   let scheduleData = null;
 
-  // Intercept the schedule API response
   const handler = async (response) => {
     if (!response.url().includes("/schedule")) return;
     if (!(response.headers()["content-type"] ?? "").includes("json")) return;
@@ -246,46 +248,73 @@ async function discoverGameUrls(page, scheduleUrl) {
       const json = await response.json();
       if (Array.isArray(json) && json[0]?.event?.id) {
         scheduleData = json;
+        if (DEBUG) console.log("    [DEBUG] First event keys:", Object.keys(json[0]?.event ?? {}));
       }
     } catch { /* ignore */ }
   };
   page.on("response", handler);
 
-  // Use domcontentloaded — networkidle hangs on SPAs and we capture data via response handler
   try {
     await page.goto(scheduleUrl, { waitUntil: "domcontentloaded", timeout: 60000 });
   } catch (e) {
     console.warn("  Schedule load warning:", e.message);
   }
-  // Give the SPA time to fire its schedule XHR (much shorter than networkidle)
   await page.waitForTimeout(4000);
   page.off("response", handler);
 
+  // ── Discover team URLs from the DOM (works whether or not API returned data) ─
+  // GC schedule pages link to each team's profile; grab any /teams/{id}/{slug}/schedule links.
+  const domTeamUrls = await page.evaluate(() => {
+    const pat = /^https:\/\/web\.gc\.com\/teams\/[^/]+\/[^/]+\/schedule$/;
+    return [...new Set(
+      Array.from(document.querySelectorAll("a[href]"))
+        .map(a => a.href.split("?")[0].replace(/\/$/, ""))
+        .filter(h => pat.test(h))
+    )];
+  });
+
   if (!scheduleData) {
-    // Fallback: look for game links in the DOM
-    console.log("  API intercept missed — scanning DOM for game links...");
-    const gameUrls = await page.evaluate(() => {
+    console.log("  API intercept missed — falling back to DOM game links.");
+    const domGameUrls = await page.evaluate(() => {
       const links = Array.from(document.querySelectorAll("a[href*='/schedule/']"));
-      return links.map(a => a.href).filter(h => h.includes("/schedule/"));
+      return links.map(a => a.href).filter(h => /\/schedule\/[^/]+\/game-stats/.test(h));
     });
-    const baseUrl = page.url().split("/schedule")[0];
-    return gameUrls.map(u => u.endsWith("/game-stats") ? u : u + "/game-stats");
+    return { gameUrls: domGameUrls, teamUrls: domTeamUrls };
   }
 
-  // Build game-stats URLs from the schedule API data
   const baseUrl = scheduleUrl.replace(/\/schedule$/, "");
 
-  // Log each game with its date so we can verify the cutoff is working
+  // Extract team schedule URLs from the API event objects (GC includes both teams)
+  const apiTeamUrls = [];
+  for (const item of scheduleData) {
+    // event.teams is an array of {id, slug} objects in newer GC API versions
+    const teams = item.event?.teams ?? [];
+    for (const t of teams) {
+      if (t.id && t.slug) {
+        apiTeamUrls.push(`https://web.gc.com/teams/${t.id}/${t.slug}/schedule`);
+      }
+    }
+    // Older API: event.home_team / event.away_team
+    for (const key of ["home_team", "away_team", "team"]) {
+      const t = item.event?.[key];
+      if (t?.id && t?.slug) {
+        apiTeamUrls.push(`https://web.gc.com/teams/${t.id}/${t.slug}/schedule`);
+      }
+    }
+  }
+
+  const allDiscoveredTeamUrls = [...new Set([...apiTeamUrls, ...domTeamUrls])];
+
+  // Log each game
   for (const item of scheduleData) {
     const gameDate = getEventDate(item);
     const dateStr  = gameDate ? gameDate.toISOString().slice(0, 10) : "?";
     const opp      = item.event?.title ?? item.event?.id ?? "?";
-    const future   = gameDate && gameDate > today ? " [SKIPPED — future game]" : "";
+    const future   = gameDate && gameDate > today ? " [SKIPPED — future]" : "";
     const skipped  = !future && GC_SEASON_START && gameDate && gameDate < GC_SEASON_START ? " [SKIPPED — before season start]" : "";
     console.log(`    [${dateStr}] ${opp}${future}${skipped}`);
   }
 
-  // Filter by the phase-appropriate date window; also skip future games (no stats yet)
   const afterDate  = SYNC_PHASE === "playoff" ? GC_PLAYOFF_START : GC_SEASON_START;
   const beforeDate = SYNC_PHASE === "playoff" ? null             : GC_SEASON_END;
 
@@ -293,16 +322,19 @@ async function discoverGameUrls(page, scheduleUrl) {
     if (!item.event?.id) return false;
     const gameDate = getEventDate(item);
     if (gameDate) {
-      if (gameDate > today)                    return false; // skip future games
+      if (gameDate > today)                    return false;
       if (afterDate  && gameDate < afterDate)  return false;
       if (beforeDate && gameDate > beforeDate) return false;
     }
     return true;
   });
 
-  console.log(`  ${eligibleGames.length} eligible game(s) out of ${scheduleData.length} total.`);
+  console.log(`  ${eligibleGames.length} past game(s) of ${scheduleData.length} total | ${allDiscoveredTeamUrls.length} team URL(s) found`);
 
-  return eligibleGames.map(item => `${baseUrl}/schedule/${item.event.id}/game-stats`);
+  return {
+    gameUrls:  eligibleGames.map(item => `${baseUrl}/schedule/${item.event.id}/game-stats`),
+    teamUrls:  allDiscoveredTeamUrls,
+  };
 }
 
 // ── Per-player season aggregation ────────────────────────────────────────────
@@ -455,21 +487,34 @@ async function main() {
     "BUY A TEAM PASS","BACK TO SCHEDULE","ADD EVENT",
   ];
 
-  // ── Discover past games from all team schedules, deduplicate by game ID ─────
-  // Future games are filtered out in discoverGameUrls (gameDate > today).
-  // The same game appears on both teams' schedule pages; key by the UUID in the URL.
+  // ── Snowball-discover ALL league teams, starting from GC_TEAM_URLS ──────────
+  // Each team's schedule page reveals its opponents' schedule URLs (via DOM links
+  // and/or the schedule API). We follow those too, until no new teams surface.
+  // Every game is deduplicated by game ID so we never scrape the same game twice.
   const gameUrlByGameId = new Map();
+  const visitedTeamUrls = new Set();
+  const teamQueue = [...GC_TEAM_URLS];
 
-  for (const teamUrl of GC_TEAM_URLS) {
-    console.log(`\n  Team: ${teamUrl}`);
-    const urls = await discoverGameUrls(page, teamUrl);
-    for (const url of urls) {
+  while (teamQueue.length > 0) {
+    const teamUrl = teamQueue.shift();
+    const normalised = teamUrl.split("?")[0].replace(/\/$/, "");
+    if (visitedTeamUrls.has(normalised)) continue;
+    visitedTeamUrls.add(normalised);
+
+    console.log(`\n  Discovering: ${normalised}`);
+    const { gameUrls, teamUrls } = await discoverSchedule(page, normalised);
+
+    for (const url of gameUrls) {
       const gameId = url.match(/\/schedule\/([^/]+)\/game-stats/)?.[1];
-      if (gameId && !gameUrlByGameId.has(gameId)) {
-        gameUrlByGameId.set(gameId, url);
-      }
+      if (gameId && !gameUrlByGameId.has(gameId)) gameUrlByGameId.set(gameId, url);
+    }
+    for (const url of teamUrls) {
+      const norm = url.split("?")[0].replace(/\/$/, "");
+      if (!visitedTeamUrls.has(norm)) teamQueue.push(url);
     }
   }
+
+  console.log(`\n  Teams visited: ${visitedTeamUrls.size}`);
 
   const allPastGameIds = [...gameUrlByGameId.keys()];
 
