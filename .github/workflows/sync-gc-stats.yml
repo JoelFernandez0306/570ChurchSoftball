@@ -40,6 +40,7 @@ jobs:
           SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
           GC_SESSION: ${{ secrets.GC_SESSION }}
           GC_TEAM_URLS: ${{ secrets.GC_TEAM_URLS }}
+          GC_ORG_SCHEDULE_URL: https://web.gc.com/organizations/998p0wVMzCOT/schedule
           GC_SEASON_START: ${{ secrets.GC_SEASON_START }}
           GC_SEASON_END: ${{ secrets.GC_SEASON_END }}
           GC_PLAYOFF_START: ${{ secrets.GC_PLAYOFF_START }}

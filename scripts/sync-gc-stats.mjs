@@ -39,6 +39,11 @@ const DEBUG                     = process.env.GC_DEBUG === "1";
 const GC_TEAM_URLS = (process.env.GC_TEAM_URLS || process.env.GC_TEAM_URL || "")
   .split(",").map(u => u.trim()).filter(Boolean);
 
+// Optional org-level schedule URL — when set, all league games are discovered
+// from a single page instead of snowballing through individual team pages.
+// e.g. https://web.gc.com/organizations/998p0wVMzCOT/schedule
+const GC_ORG_SCHEDULE_URL = process.env.GC_ORG_SCHEDULE_URL?.trim() || null;
+
 // Date boundaries (all optional)
 const GC_SEASON_START  = process.env.GC_SEASON_START  ? new Date(process.env.GC_SEASON_START)  : null;
 const GC_SEASON_END    = process.env.GC_SEASON_END    ? new Date(process.env.GC_SEASON_END)    : null;
@@ -252,7 +257,7 @@ function getEventDate(item) {
 // Returns { gameUrls, teamUrls } — gameUrls are game-stats pages to scrape,
 // teamUrls are other team schedule pages discovered from the API response
 // (used for snowball league-wide discovery).
-async function discoverSchedule(page, scheduleUrl) {
+async function discoverSchedule(page, scheduleUrl, baseUrlOverride = null) {
   console.log(`  Navigating to schedule: ${scheduleUrl}`);
   let scheduleData = null;
 
@@ -304,7 +309,8 @@ async function discoverSchedule(page, scheduleUrl) {
     return { gameUrls: [], teamUrls: domTeamUrls };
   }
 
-  const baseUrl = scheduleUrl.replace(/\/schedule$/, "");
+  // For org schedule pages the URL has no team context, so use the override
+  const baseUrl = baseUrlOverride ?? scheduleUrl.replace(/\/schedule$/, "");
 
   // Extract team schedule URLs from the API event objects (GC includes both teams)
   const apiTeamUrls = [];
@@ -517,34 +523,47 @@ async function main() {
     "BUY A TEAM PASS","BACK TO SCHEDULE","ADD EVENT",
   ];
 
-  // ── Snowball-discover ALL league teams, starting from GC_TEAM_URLS ──────────
-  // Each team's schedule page reveals its opponents' schedule URLs (via DOM links
-  // and/or the schedule API). We follow those too, until no new teams surface.
-  // Every game is deduplicated by game ID so we never scrape the same game twice.
   const gameUrlByGameId = new Map();
-  const visitedTeamUrls = new Set();
-  const teamQueue = [...GC_TEAM_URLS];
 
-  while (teamQueue.length > 0) {
-    const teamUrl = teamQueue.shift();
-    const normalised = teamUrl.split("?")[0].replace(/\/$/, "");
-    if (visitedTeamUrls.has(normalised)) continue;
-    visitedTeamUrls.add(normalised);
+  // Game-stats URLs need a team context. Use the first seed team URL as the base
+  // (game pages show both teams regardless of which team's URL you use to access them).
+  const teamBaseUrl = GC_TEAM_URLS[0].replace(/\/schedule$/, "");
 
-    console.log(`\n  Discovering: ${normalised}`);
-    const { gameUrls, teamUrls } = await discoverSchedule(page, normalised);
-
+  if (GC_ORG_SCHEDULE_URL) {
+    // ── Primary: org schedule page — discovers ALL league games in one load ──────
+    console.log(`\n  Discovering all league games from org schedule: ${GC_ORG_SCHEDULE_URL}`);
+    const { gameUrls } = await discoverSchedule(page, GC_ORG_SCHEDULE_URL, teamBaseUrl);
     for (const url of gameUrls) {
       const gameId = url.match(/\/schedule\/([^/]+)\/game-stats/)?.[1];
       if (gameId && !gameUrlByGameId.has(gameId)) gameUrlByGameId.set(gameId, url);
     }
-    for (const url of teamUrls) {
-      const norm = url.split("?")[0].replace(/\/$/, "");
-      if (!visitedTeamUrls.has(norm)) teamQueue.push(url);
-    }
-  }
+    console.log(`  League games discovered: ${gameUrlByGameId.size}`);
+  } else {
+    // ── Fallback: snowball through individual team schedules ──────────────────────
+    console.log(`\n  GC_ORG_SCHEDULE_URL not set — snowballing from team schedules.`);
+    const visitedTeamUrls = new Set();
+    const teamQueue = [...GC_TEAM_URLS];
 
-  console.log(`\n  Teams visited: ${visitedTeamUrls.size}`);
+    while (teamQueue.length > 0) {
+      const teamUrl = teamQueue.shift();
+      const normalised = teamUrl.split("?")[0].replace(/\/$/, "");
+      if (visitedTeamUrls.has(normalised)) continue;
+      visitedTeamUrls.add(normalised);
+
+      console.log(`\n  Discovering: ${normalised}`);
+      const { gameUrls, teamUrls } = await discoverSchedule(page, normalised);
+
+      for (const url of gameUrls) {
+        const gameId = url.match(/\/schedule\/([^/]+)\/game-stats/)?.[1];
+        if (gameId && !gameUrlByGameId.has(gameId)) gameUrlByGameId.set(gameId, url);
+      }
+      for (const url of teamUrls) {
+        const norm = url.split("?")[0].replace(/\/$/, "");
+        if (!visitedTeamUrls.has(norm)) teamQueue.push(url);
+      }
+    }
+    console.log(`\n  Teams visited: ${visitedTeamUrls.size}`);
+  }
 
   const allPastGameIds = [...gameUrlByGameId.keys()];
 
