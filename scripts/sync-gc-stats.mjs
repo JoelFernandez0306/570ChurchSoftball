@@ -446,7 +446,17 @@ async function main() {
   }
   console.log("  ✓ Session valid\n");
 
-  // ── Discover games from all team schedules, deduplicate by game ID ──────────
+  const EXCLUDED_UI = [
+    "BOX SCORE","GAME STATS","BATTING","PITCHING","FIELDING",
+    "STANDARD","ADVANCED","PLAYS","VIDEOS","RECAP","INSIGHTS",
+    "INFO","STARTING LINEUP","EDIT STATS","HOME","SCHEDULE",
+    "TEAM","STATS","OPPONENTS","TOOLS","GET THE APP","SIGN IN",
+    "SIGN UP","TRY FOR FREE","SUPPORT","ACCOUNT","SIGN OUT",
+    "BUY A TEAM PASS","BACK TO SCHEDULE","ADD EVENT",
+  ];
+
+  // ── Discover past games from all team schedules, deduplicate by game ID ─────
+  // Future games are filtered out in discoverGameUrls (gameDate > today).
   // The same game appears on both teams' schedule pages; key by the UUID in the URL.
   const gameUrlByGameId = new Map();
 
@@ -461,33 +471,47 @@ async function main() {
     }
   }
 
-  const gameUrls = [...gameUrlByGameId.values()];
+  const allPastGameIds = [...gameUrlByGameId.keys()];
 
-  if (gameUrls.length === 0) {
-    console.log("\nℹ️  No eligible games found — nothing to sync.");
+  if (allPastGameIds.length === 0) {
+    console.log("\nℹ️  No past games found in schedule — nothing to sync.");
     await browser.close();
     process.exit(0);
   }
 
-  console.log(`\n  Games to scrape: ${gameUrls.length} (unique)`);
-  gameUrls.forEach((u, i) => console.log(`    ${i + 1}. ${u}`));
+  // ── Check which game IDs are already stored in player_game_stats ────────────
+  // Query in batches to stay within Supabase URL length limits.
+  const alreadyScraped = new Set();
+  for (let i = 0; i < allPastGameIds.length; i += 100) {
+    const batch = allPastGameIds.slice(i, i + 100);
+    const { data, error } = await supabase
+      .from("player_game_stats")
+      .select("game_id")
+      .in("game_id", batch);
+    if (!error && data) {
+      for (const row of data) alreadyScraped.add(row.game_id);
+    }
+  }
 
-  // ── Scrape each game ───────────────────────────────────────────────────────
-  const allGameRows = [];
+  const gameIdsToScrape = allPastGameIds.filter(id => !alreadyScraped.has(id));
 
-  const EXCLUDED_UI = [
-    "BOX SCORE","GAME STATS","BATTING","PITCHING","FIELDING",
-    "STANDARD","ADVANCED","PLAYS","VIDEOS","RECAP","INSIGHTS",
-    "INFO","STARTING LINEUP","EDIT STATS","HOME","SCHEDULE",
-    "TEAM","STATS","OPPONENTS","TOOLS","GET THE APP","SIGN IN",
-    "SIGN UP","TRY FOR FREE","SUPPORT","ACCOUNT","SIGN OUT",
-    "BUY A TEAM PASS","BACK TO SCHEDULE","ADD EVENT",
-  ];
+  console.log(`\n  Past games in schedule: ${allPastGameIds.length}`);
+  console.log(`  Already scraped:        ${alreadyScraped.size}`);
+  console.log(`  Need to scrape:         ${gameIdsToScrape.length}`);
 
-  for (let gi = 0; gi < gameUrls.length; gi++) {
-    const gameUrl = gameUrls[gi];
-    const gameNum = gi + 1;
-    console.log(`\n  ── Game ${gameNum}/${gameUrls.length} ──────────────────────────`);
+  if (gameIdsToScrape.length === 0) {
+    console.log("\n✅ All past games already scraped.");
+  } else {
+    gameIdsToScrape.forEach((id, i) => console.log(`    ${i + 1}. ${gameUrlByGameId.get(id)}`));
+  }
+
+  // ── Scrape only new games, store per-game rows immediately ──────────────────
+  let newRowsStored = 0;
+
+  for (let gi = 0; gi < gameIdsToScrape.length; gi++) {
+    const gameId  = gameIdsToScrape[gi];
+    const gameUrl = gameUrlByGameId.get(gameId);
+    console.log(`\n  ── Game ${gi + 1}/${gameIdsToScrape.length} ──────────────────────────`);
     console.log(`     ${gameUrl}`);
 
     try {
@@ -496,7 +520,6 @@ async function main() {
       console.warn("    Load warning:", e.message);
     }
 
-    // Log current URL so we know if we got redirected to login
     const landedUrl = page.url();
     console.log(`    Landed: ${landedUrl}`);
     if (landedUrl.includes("/login") || landedUrl.includes("/sign-up")) {
@@ -505,18 +528,19 @@ async function main() {
       continue;
     }
 
-    // Wait for Batting tab to appear (try both capitalizations GC uses)
+    // Wait for Batting tab to appear
     const battingFound = await page.locator(
       'button, [role="tab"], [role="button"]'
     ).filter({ hasText: /^batting$/i }).first().waitFor({ timeout: 15000 }).then(() => true).catch(() => false);
 
     if (!battingFound) {
-      console.warn("    Batting tab not found — saving debug screenshot and skipping.");
-      await page.screenshot({ path: "gc-stats-debug.png", fullPage: false });
-      // Log visible top-level text so we can diagnose in CI
-      const pageText = await page.evaluate(() => document.body.innerText.slice(0, 1000));
-      console.log("    Page text sample:", pageText.replace(/\n+/g, " | ").slice(0, 400));
-      continue;
+      console.warn("    Batting tab not found — stats not yet available, will retry next run.");
+      if (DEBUG) {
+        await page.screenshot({ path: "gc-stats-debug.png", fullPage: false });
+        const pageText = await page.evaluate(() => document.body.innerText.slice(0, 1000));
+        console.log("    Page text sample:", pageText.replace(/\n+/g, " | ").slice(0, 400));
+      }
+      continue; // don't mark as scraped — retry next run
     }
 
     // Find both team buttons
@@ -539,6 +563,7 @@ async function main() {
     console.log(`    Teams: ${teamNames.join(" | ") || "(auto)"}`);
 
     const teamsToProcess = teamNames.length >= 2 ? teamNames : [null];
+    const gameRows = [];
 
     for (const teamName of teamsToProcess) {
       if (teamName) {
@@ -546,19 +571,18 @@ async function main() {
         await page.waitForTimeout(200);
       }
 
-      // ── Standard tab: H, 1B, 2B, 3B, HR, RBI, AVG, OBP, SLG, OPS ──────────
+      // ── Standard tab: H, 1B, 2B, 3B, HR, RBI ────────────────────────────────
       await tryClick(page, "Batting", 6000);
       await page.waitForTimeout(600);
       await tryClick(page, "Standard", 6000);
       await page.waitForTimeout(600);
       const standardRows = await extractAdvancedStats(page);
 
-      // ── Advanced tab: QAB, HHB, LD, FB, GB, BABIP, etc. ────────────────────
+      // ── Advanced tab: QAB, HHB, LD, FB, GB, BABIP, etc. ─────────────────────
       await tryClick(page, "Advanced", 6000);
       await page.waitForTimeout(600);
       const advancedRows = await extractAdvancedStats(page);
 
-      // Merge by player name (advanced is authoritative for PA/AB when present)
       const stdByPlayer = new Map(standardRows.map(r => [r["PLAYER"], r]));
       const rows = advancedRows.length > 0 ? advancedRows : standardRows;
 
@@ -568,9 +592,9 @@ async function main() {
 
         for (const row of rows) {
           const name = row["PLAYER"] ?? "";
-          const std = stdByPlayer.get(name) ?? {};
-
-          allGameRows.push({
+          const std  = stdByPlayer.get(name) ?? {};
+          gameRows.push({
+            game_id:      gameId,
             player_name:  name,
             team_name:    inferredTeam,
             season_type:  SYNC_PHASE,
@@ -604,28 +628,55 @@ async function main() {
       } else {
         console.warn(`    ⚠️  No rows found for "${teamName ?? "default team"}"`);
         if (DEBUG) {
-          await page.screenshot({ path: `gc-stats-debug-game${gameNum}.png`, fullPage: true });
+          await page.screenshot({ path: `gc-stats-debug-game${gi + 1}.png`, fullPage: true });
         }
       }
+    }
+
+    // Store per-game rows immediately — only if we got stats (so empty games retry next run)
+    if (gameRows.length > 0) {
+      for (let i = 0; i < gameRows.length; i += 50) {
+        const { error } = await supabase.from("player_game_stats").upsert(
+          gameRows.slice(i, i + 50),
+          { onConflict: "game_id,player_name,team_name", ignoreDuplicates: false }
+        );
+        if (error) console.error(`    ❌ player_game_stats upsert failed: ${error.message}`);
+      }
+      newRowsStored += gameRows.length;
+      console.log(`    Stored ${gameRows.length} rows to player_game_stats.`);
     }
   }
 
   await browser.close();
 
-  if (allGameRows.length === 0) {
-    console.log("\n⚠️  No stats extracted from any game — skipping DB write.");
+  // ── Re-aggregate season totals from all stored per-game data ────────────────
+  // Read every row in player_game_stats for this phase, then aggregate.
+  // This ensures season totals are always computed from the full history,
+  // not just this run's newly scraped games.
+  console.log(`\n  Newly stored rows: ${newRowsStored}`);
+  console.log("  Reading all stored game stats for re-aggregation...");
+
+  const { data: allStoredRows, error: readError } = await supabase
+    .from("player_game_stats")
+    .select("*")
+    .eq("season_type", SYNC_PHASE);
+
+  if (readError) {
+    console.error("❌ Failed to read player_game_stats:", readError.message);
+    process.exit(1);
+  }
+
+  if (!allStoredRows || allStoredRows.length === 0) {
+    console.log("⚠️  No stored game stats found — skipping aggregation.");
     process.exit(0);
   }
 
-  // ── Aggregate season totals ────────────────────────────────────────────────
-  console.log(`\n  Raw rows collected: ${allGameRows.length}`);
-  const aggregated = aggregateStats(allGameRows);
+  console.log(`  Total stored rows: ${allStoredRows.length}`);
+  const aggregated = aggregateStats(allStoredRows);
   console.log(`  Aggregated to ${aggregated.length} unique players.`);
 
-  // ── Upsert to Supabase ─────────────────────────────────────────────────────
-  console.log("  Writing to Supabase...");
-
-  // Upsert in batches of 50
+  // ── Upsert aggregated season totals ─────────────────────────────────────────
+  console.log("  Writing to player_batting_stats...");
   for (let i = 0; i < aggregated.length; i += 50) {
     const batch = aggregated.slice(i, i + 50);
     const { error } = await supabase.from("player_batting_stats").upsert(batch, {
@@ -638,7 +689,7 @@ async function main() {
     }
   }
 
-  // Remove stale rows only for teams that were actually scraped this run.
+  // Remove stale rows only for teams present in the stored game data.
   // Teams entered manually (not on GC) are never touched.
   const scrapedTeams = [...new Set(aggregated.map(r => r.team_name).filter(Boolean))];
   for (const team of scrapedTeams) {
