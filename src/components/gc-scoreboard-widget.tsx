@@ -5,11 +5,13 @@ import Script from "next/script";
 
 interface GcScoreboardWidgetProps {
   widgetId: string;
+  onLiveStatusChange?: (hasLive: boolean) => void;
 }
 
-export function GcScoreboardWidget({ widgetId }: GcScoreboardWidgetProps) {
+export function GcScoreboardWidget({ widgetId, onLiveStatusChange }: GcScoreboardWidgetProps) {
   const divId = `gc-scoreboard-widget-${widgetId.slice(0, 8)}`;
   const observerRef = useRef<MutationObserver | null>(null);
+  const liveStatusRef = useRef<boolean | null>(null);
 
   useEffect(() => {
     return () => observerRef.current?.disconnect();
@@ -23,15 +25,12 @@ export function GcScoreboardWidget({ widgetId }: GcScoreboardWidgetProps) {
       maxVerticalGamesVisible: 4,
     });
 
-    // Hide non-live game cards once the widget renders them
     const container = document.getElementById(divId);
     if (!container) return;
 
     function hidePastAndFutureGames() {
-      // Wait until the widget has actually rendered something
       if (container!.children.length === 0) return;
 
-      // Find the outermost card ancestor that contains a "LIVE" text node
       const liveCards = new Set<HTMLElement>();
       container!.querySelectorAll("*").forEach((el) => {
         if (el.children.length === 0 && /^live$/i.test(el.textContent?.trim() ?? "")) {
@@ -43,7 +42,14 @@ export function GcScoreboardWidget({ widgetId }: GcScoreboardWidgetProps) {
         }
       });
 
-      // Show only live game cards; hide everything when none are live
+      const hasLive = liveCards.size > 0;
+
+      // Notify parent only when status changes to avoid re-render loops
+      if (hasLive !== liveStatusRef.current) {
+        liveStatusRef.current = hasLive;
+        onLiveStatusChange?.(hasLive);
+      }
+
       const topChildren = Array.from(container!.children) as HTMLElement[];
       topChildren.forEach((card) => {
         const isLive = liveCards.has(card) || [...liveCards].some((lc) => card.contains(lc));

@@ -4,7 +4,7 @@ import { formatInTimeZone } from "date-fns-tz";
 import { SiteHeader } from "@/components/site-header";
 import { ScheduleTable } from "@/components/schedule-table";
 import { StandingsTable } from "@/components/standings-table";
-import { GcScoreboardWidget } from "@/components/gc-scoreboard-widget";
+import { LiveScoreboardCard } from "@/components/live-scoreboard-card";
 import {
   formatCompetitionPhaseLabel,
   loadActiveCompetitionPhase,
@@ -90,20 +90,8 @@ export default async function HomePage() {
 
           {isGameDay && hasScoreboardWidget ? (
             <>
-              {/* Game day — full-width live scoreboard */}
-              <aside className="card">
-                <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: "0.6rem" }}>
-                  <h3 style={{ margin: 0 }}>Live Scoreboard</h3>
-                  <span style={{
-                    display: "inline-flex", alignItems: "center", gap: "0.35rem",
-                    fontSize: "0.78rem", fontWeight: 700, color: "#155c35",
-                    background: "#cbeed7", borderRadius: "999px", padding: "0.2rem 0.6rem",
-                  }}>
-                    <span style={{ fontSize: "0.6rem" }}>●</span> Game Day
-                  </span>
-                </div>
-                <GcScoreboardWidget widgetId={gcOrgScoreboardWidgetId!} />
-              </aside>
+              {/* Game day — full-width live scoreboard, hidden until a live game is detected */}
+              <LiveScoreboardCard widgetId={gcOrgScoreboardWidgetId!} />
 
               {/* Top of table below on game day */}
               <div className="card-grid" style={{ gridTemplateColumns: "repeat(2, minmax(0, 1fr))" }}>
