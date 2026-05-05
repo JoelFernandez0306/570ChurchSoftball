@@ -100,7 +100,7 @@ async function tryClick(page, text, timeout = 5000) {
     ).first();
     await el.waitFor({ timeout });
     await el.click();
-    await page.waitForTimeout(1200);
+    await page.waitForTimeout(400);
     return true;
   } catch { return false; }
 }
@@ -117,7 +117,7 @@ async function triggerHorizontalRender(page) {
       }
     }
   });
-  await page.waitForTimeout(500);
+  await page.waitForTimeout(150);
   await page.evaluate(() => {
     for (const el of document.querySelectorAll("*")) {
       const s = window.getComputedStyle(el);
@@ -127,16 +127,16 @@ async function triggerHorizontalRender(page) {
       }
     }
   });
-  await page.waitForTimeout(300);
+  await page.waitForTimeout(100);
 }
 
 // ── Spatial table extractor (proven strategy from test-game-stats.mjs) ────────
 
 async function extractAdvancedStats(page) {
   await page.evaluate(() => window.scrollTo(0, document.body.scrollHeight));
-  await page.waitForTimeout(500);
+  await page.waitForTimeout(150);
   await page.evaluate(() => window.scrollTo(0, 0));
-  await page.waitForTimeout(300);
+  await page.waitForTimeout(100);
   await triggerHorizontalRender(page);
 
   return page.evaluate(() => {
@@ -251,12 +251,14 @@ async function discoverGameUrls(page, scheduleUrl) {
   };
   page.on("response", handler);
 
+  // Use domcontentloaded — networkidle hangs on SPAs and we capture data via response handler
   try {
-    await page.goto(scheduleUrl, { waitUntil: "networkidle", timeout: 60000 });
+    await page.goto(scheduleUrl, { waitUntil: "domcontentloaded", timeout: 60000 });
   } catch (e) {
     console.warn("  Schedule load warning:", e.message);
   }
-  await page.waitForTimeout(3000);
+  // Give the SPA time to fire its schedule XHR (much shorter than networkidle)
+  await page.waitForTimeout(4000);
   page.off("response", handler);
 
   if (!scheduleData) {
@@ -278,11 +280,12 @@ async function discoverGameUrls(page, scheduleUrl) {
     const gameDate = getEventDate(item);
     const dateStr  = gameDate ? gameDate.toISOString().slice(0, 10) : "?";
     const opp      = item.event?.title ?? item.event?.id ?? "?";
-    const skipped  = GC_SEASON_START && gameDate && gameDate < GC_SEASON_START ? " [SKIPPED — before season start]" : "";
-    console.log(`    [${dateStr}] ${opp}${skipped}`);
+    const future   = gameDate && gameDate > today ? " [SKIPPED — future game]" : "";
+    const skipped  = !future && GC_SEASON_START && gameDate && gameDate < GC_SEASON_START ? " [SKIPPED — before season start]" : "";
+    console.log(`    [${dateStr}] ${opp}${future}${skipped}`);
   }
 
-  // Filter by the phase-appropriate date window; include games with unknown dates
+  // Filter by the phase-appropriate date window; also skip future games (no stats yet)
   const afterDate  = SYNC_PHASE === "playoff" ? GC_PLAYOFF_START : GC_SEASON_START;
   const beforeDate = SYNC_PHASE === "playoff" ? null             : GC_SEASON_END;
 
@@ -290,6 +293,7 @@ async function discoverGameUrls(page, scheduleUrl) {
     if (!item.event?.id) return false;
     const gameDate = getEventDate(item);
     if (gameDate) {
+      if (gameDate > today)                    return false; // skip future games
       if (afterDate  && gameDate < afterDate)  return false;
       if (beforeDate && gameDate > beforeDate) return false;
     }
@@ -412,7 +416,7 @@ async function main() {
   } catch (e) {
     console.warn("  Schedule load warning:", e.message);
   }
-  await page.waitForTimeout(3000);
+  await page.waitForTimeout(1500);
   const verifyUrl = page.url();
   const verifyText = await page.evaluate(() => document.body.innerText.slice(0, 500));
   console.log(`  Verify URL: ${verifyUrl}`);
@@ -491,7 +495,6 @@ async function main() {
     } catch (e) {
       console.warn("    Load warning:", e.message);
     }
-    await page.waitForTimeout(4000);
 
     // Log current URL so we know if we got redirected to login
     const landedUrl = page.url();
@@ -540,19 +543,19 @@ async function main() {
     for (const teamName of teamsToProcess) {
       if (teamName) {
         await tryClick(page, teamName, 5000);
-        await page.waitForTimeout(600);
+        await page.waitForTimeout(200);
       }
 
       // ── Standard tab: H, 1B, 2B, 3B, HR, RBI, AVG, OBP, SLG, OPS ──────────
       await tryClick(page, "Batting", 6000);
-      await page.waitForTimeout(1500);
+      await page.waitForTimeout(600);
       await tryClick(page, "Standard", 6000);
-      await page.waitForTimeout(1500);
+      await page.waitForTimeout(600);
       const standardRows = await extractAdvancedStats(page);
 
       // ── Advanced tab: QAB, HHB, LD, FB, GB, BABIP, etc. ────────────────────
       await tryClick(page, "Advanced", 6000);
-      await page.waitForTimeout(1500);
+      await page.waitForTimeout(600);
       const advancedRows = await extractAdvancedStats(page);
 
       // Merge by player name (advanced is authoritative for PA/AB when present)

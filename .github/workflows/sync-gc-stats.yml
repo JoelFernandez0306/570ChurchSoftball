@@ -16,7 +16,7 @@ jobs:
   sync:
     name: Scrape & sync batting stats
     runs-on: ubuntu-latest
-    timeout-minutes: 30
+    timeout-minutes: 15
 
     steps:
       - name: Checkout
