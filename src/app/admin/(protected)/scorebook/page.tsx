@@ -19,7 +19,7 @@ export default async function ScoreBookPage() {
 
   const gameOptions = pastGames.map((g) => ({
     id: g.id,
-    label: `${g.game_date} — ${g.away_team_name} @ ${g.home_team_name}`,
+    label: `${g.game_date} G${g.game_number ?? 1} — ${g.away_team_name} @ ${g.home_team_name}`,
     awayTeam: g.away_team_name,
     homeTeam: g.home_team_name,
   }));
