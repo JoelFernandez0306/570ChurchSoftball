@@ -306,20 +306,47 @@ async function discoverSchedule(page, scheduleUrl, baseUrlOverride = null) {
     // games — no date info needed, just look for that label.
     if (scheduleUrl.includes("/organizations/")) {
       console.log("  API miss on org page — scanning DOM for Final game links...");
-      const orgBase    = scheduleUrl.replace(/\/schedule$/, "");
+      const orgBase = scheduleUrl.replace(/\/schedule$/, "");
+
+      // Scroll to trigger any lazy-loaded game cards, then wait for content
+      await page.evaluate(() => window.scrollTo(0, document.body.scrollHeight));
+      await page.waitForTimeout(2000);
+      await page.evaluate(() => window.scrollTo(0, 0));
+
+      // Log what's on the page so we can diagnose rendering issues
+      const pageText = await page.evaluate(() => document.body.innerText.slice(0, 800));
+      console.log(`  Page text: ${pageText.replace(/\n+/g, " | ").slice(0, 300)}`);
+
+      // Save a screenshot for diagnosis
+      await page.screenshot({ path: "gc-stats-debug.png", fullPage: false });
+
       const finalGameIds = await page.evaluate(() => {
         const ids = new Set();
+
+        // Strategy 1: anchor tags whose ancestor contains "FINAL"
         document.querySelectorAll("a[href]").forEach(a => {
-          // Game links on org pages: /organizations/{orgId}/schedule/{gameId}
           const m = a.href.match(/\/schedule\/([A-Za-z0-9_-]{8,})(?:\/|$)/);
           if (!m) return;
-          // Only include if the link's ancestor contains "FINAL"
           for (let el = a; el && el !== document.body; el = el.parentElement) {
             if (/\bfinal\b/i.test(el.textContent ?? "")) { ids.add(m[1]); break; }
           }
         });
+
+        // Strategy 2: search raw HTML for schedule IDs near "FINAL" text
+        // (catches React components that use onClick instead of href)
+        if (ids.size === 0) {
+          const html = document.body.innerHTML;
+          const pat  = /\/schedule\/([A-Za-z0-9_-]{8,})/g;
+          let m;
+          while ((m = pat.exec(html)) !== null) {
+            const ctx = html.slice(Math.max(0, m.index - 800), m.index + 800);
+            if (/final/i.test(ctx)) ids.add(m[1]);
+          }
+        }
+
         return [...ids];
       });
+
       console.log(`  Found ${finalGameIds.length} Final game(s) via DOM.`);
       return {
         gameUrls: finalGameIds.map(id => `${orgBase}/schedule/${id}`),
