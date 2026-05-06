@@ -766,7 +766,26 @@ export async function saveScoreBookStatsAction(
   if (!gameId || players.length === 0) throw new Error("Missing game ID or players.");
 
   const now = new Date().toISOString();
-  const rows = players.map((p) => ({ ...p, game_id: gameId, season_type: seasonType, scraped_at: now }));
+
+  // Merge any duplicate (player_name, team_name) pairs — can happen if two extracted
+  // players were mapped to the same roster name in the verify step.
+  const merged = new Map<string, typeof players[0]>();
+  for (const p of players) {
+    const key = `${p.player_name}|${p.team_name}`;
+    const existing = merged.get(key);
+    if (existing) {
+      merged.set(key, {
+        ...existing,
+        ab: existing.ab + p.ab, r: existing.r + p.r, h: existing.h + p.h,
+        singles: existing.singles + p.singles, doubles: existing.doubles + p.doubles,
+        triples: existing.triples + p.triples, hr: existing.hr + p.hr,
+        rbi: existing.rbi + p.rbi, bb: existing.bb + p.bb, so: existing.so + p.so,
+      });
+    } else {
+      merged.set(key, p);
+    }
+  }
+  const rows = [...merged.values()].map((p) => ({ ...p, game_id: gameId, season_type: seasonType, scraped_at: now }));
 
   // Upsert per-game rows
   for (let i = 0; i < rows.length; i += 50) {
