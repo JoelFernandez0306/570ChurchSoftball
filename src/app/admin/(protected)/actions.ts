@@ -76,6 +76,75 @@ export async function createTeamAction(formData: FormData) {
   revalidatePath("/");
 }
 
+export async function renameTeamAction(formData: FormData) {
+  await requireAdminPageAccess();
+  const supabase = getServiceSupabaseClient();
+  const teamId   = String(formData.get("team_id")   ?? "").trim();
+  const newName  = String(formData.get("name")       ?? "").trim();
+  const newShort = String(formData.get("short_name") ?? "").trim();
+  const oldName  = String(formData.get("old_name")   ?? "").trim();
+
+  if (!teamId || !newName) throw new Error("Team ID and new name are required");
+  if (newName === oldName && !newShort) throw new Error("Name is unchanged");
+
+  // 1. Rename in teams table
+  const { error: renameErr } = await supabase
+    .schema("league").from("teams")
+    .update({ name: newName, short_name: newShort || null })
+    .eq("id", teamId);
+  if (renameErr) throw new Error(`Failed to rename team: ${renameErr.message}`);
+
+  // 2. Re-attribute stats rows that used the old name
+  if (oldName && newName !== oldName) {
+    const { error: gsErr } = await supabase
+      .schema("league").from("player_game_stats")
+      .update({ team_name: newName })
+      .eq("team_name", oldName);
+    if (gsErr) throw new Error(`Failed to update game stats team name: ${gsErr.message}`);
+
+    // 3. Re-aggregate player_batting_stats for the merged team name
+    const { data: allRows, error: readErr } = await supabase
+      .schema("league").from("player_game_stats")
+      .select("player_name,season_type,ab,r,h,singles,doubles,triples,hr,rbi,bb,so")
+      .eq("team_name", newName);
+    if (readErr) throw new Error(`Failed to read game stats: ${readErr.message}`);
+
+    const now = new Date().toISOString();
+    const byKey = new Map<string, { player_name: string; season_type: string; gp: number; ab: number; r: number; h: number; singles: number; doubles: number; triples: number; hr: number; rbi: number; bb: number; so: number }>();
+    for (const row of allRows ?? []) {
+      const key = `${row.player_name}|${row.season_type}`;
+      const agg = byKey.get(key) ?? { player_name: row.player_name, season_type: row.season_type, gp: 0, ab: 0, r: 0, h: 0, singles: 0, doubles: 0, triples: 0, hr: 0, rbi: 0, bb: 0, so: 0 };
+      agg.gp++;
+      for (const col of ["ab","r","h","singles","doubles","triples","hr","rbi","bb","so"] as const) {
+        agg[col] += (row[col] ?? 0) as number;
+      }
+      byKey.set(key, agg);
+    }
+
+    const aggregated = [...byKey.values()].map((agg) => ({
+      player_name: agg.player_name, team_name: newName, season_type: agg.season_type,
+      gp: agg.gp, ab: agg.ab, r: agg.r, h: agg.h,
+      singles: agg.singles, doubles: agg.doubles, triples: agg.triples, hr: agg.hr,
+      rbi: agg.rbi, bb: agg.bb, so: agg.so,
+      avg: agg.ab > 0 ? agg.h / agg.ab : null,
+      synced_at: now,
+    }));
+
+    // Delete old-name rows, upsert newly aggregated rows
+    await supabase.schema("league").from("player_batting_stats").delete().eq("team_name", oldName);
+    for (let i = 0; i < aggregated.length; i += 50) {
+      const { error: upsertErr } = await supabase
+        .schema("league").from("player_batting_stats")
+        .upsert(aggregated.slice(i, i + 50), { onConflict: "player_name,team_name,season_type", ignoreDuplicates: false });
+      if (upsertErr) throw new Error(`Failed to re-aggregate stats: ${upsertErr.message}`);
+    }
+  }
+
+  revalidatePath("/admin/teams");
+  revalidatePath("/stats");
+  revalidatePath("/");
+}
+
 export async function deleteTeamAction(formData: FormData) {
   await requireAdminPageAccess();
   const supabase = getServiceSupabaseClient();

@@ -3,6 +3,7 @@ import {
   createTeamAction,
   deleteAliasAction,
   deleteTeamAction,
+  renameTeamAction,
 } from "@/app/admin/(protected)/actions";
 import { loadTeamsWithRoster } from "@/lib/league-data";
 
@@ -62,6 +63,22 @@ export default async function AdminTeamsPage() {
                     </button>
                   </form>
                 </div>
+
+                <form action={renameTeamAction} className="form-grid">
+                  <input type="hidden" name="team_id" value={team.id} />
+                  <input type="hidden" name="old_name" value={team.name} />
+                  <label>
+                    Rename team
+                    <input name="name" defaultValue={team.name} required />
+                  </label>
+                  <label>
+                    Short name
+                    <input name="short_name" defaultValue={team.short_name ?? ""} placeholder="Optional" />
+                  </label>
+                  <div style={{ alignSelf: "end" }}>
+                    <button type="submit">Save Name</button>
+                  </div>
+                </form>
 
                 <form action={createAliasAction} className="form-grid">
                   <input type="hidden" name="team_id" value={team.id} />
