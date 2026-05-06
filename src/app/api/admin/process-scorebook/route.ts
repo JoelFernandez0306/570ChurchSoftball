@@ -36,13 +36,26 @@ export async function POST(req: NextRequest) {
 
   const prompt = `You are analyzing a handwritten softball scorebook page for the team "${teamName}".
 
-SCOREBOOK LAYOUT: This is a standard paper softball scorebook. Each row is one player.
-- Left column: player name
-- Middle columns: small cells or diamonds tracking each at-bat per inning (ignore these)
-- Right side: summary totals for the game — typically columns labeled AB, R, H, RBI, and sometimes BB/SO
+SCOREBOOK LAYOUT — read carefully before extracting:
 
-Your job: read the SUMMARY TOTALS columns on the right side of each player row.
-Typical values: AB is 1–5, R is 0–5, H is 0–5, RBI is 0–6. Numbers are small single digits.
+This is a play-by-play grid scorebook. Each player row has a grid of small cells, one per at-bat/inning slot. Each filled cell contains a notation showing what happened that plate appearance. You must decode EACH CELL per player to compute their stats.
+
+CELL NOTATION KEY (standard softball scoring):
+- Outs: any of "K", "k" = strikeout (SO). Numbers like "4-3", "6-3", "5-3", "1-3", "3u", "F7", "F8", "F9", "P6", "L6" etc. = out (not a hit, not a walk). Count these as AB only.
+- Hits: "1B" or a single underline/dash = single. "2B" or double underline = double. "3B" = triple. "HR" or circle = home run. A circled number or special mark = hit. Count as AB + H.
+- Walk/BB: "BB", "W", or "////" = walk. Count as BB but NOT as AB.
+- HBP: "HBP" = hit by pitch. NOT an AB.
+- Empty cell = player did not bat that slot. Do not count.
+
+HOW TO COUNT PER PLAYER:
+- AB = number of filled cells that are OUTS or HITS (not walks/HBP)
+- H = number of filled cells that are HITS
+- BB = number of walk cells
+- SO = number of K/strikeout cells
+- R = count any run-scoring indicators (circled cell, "R", arrow to home, etc.)
+- RBI = count any RBI indicators if visible
+
+ALSO CHECK: Some scorebooks have per-player totals written in small columns on the far right side of the page. If those summary columns are visible, use them — they are more reliable than cell counting.
 
 Return ONLY valid JSON — no markdown, no explanation.
 
@@ -67,11 +80,11 @@ Return ONLY valid JSON — no markdown, no explanation.
 }
 
 Rules:
-- Read every digit you can see. Commit to your best reading — do not default to 0 just because handwriting is hard to read. A reasonable guess is better than 0.
-- If BB or SO columns are not present in the scorebook, leave them as 0.
-- "crossed_out": true if the entire player row is crossed out or marked as an error/void.
-- For notes (2B/3B/HR): look for a notes/extras section on the page listing who hit extra-base hits. If a player hit multiple, write "Name 2" (e.g., "Zach 2").
-- Skip any TEAM totals row at the bottom — only individual player rows.`;
+- Commit to your best reading of each cell. A reasonable estimate is far better than returning 0.
+- "crossed_out": true if the entire player row is visibly crossed out or voided.
+- For notes: look for any extras/notes section, or infer from cells you identified as 2B/3B/HR.
+- Skip the TEAM TOTALS row at the bottom.
+- Most players will have 1–3 AB in a short softball game. If you count 0 for everyone, you have misread the format — look again.`;
 
   let text = "";
   try {
