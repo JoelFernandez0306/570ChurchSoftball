@@ -136,15 +136,25 @@ export function ScoreBookUploadForm({ games, teams, seasonType }: Props) {
       if (!res.ok) throw new Error(data.error ?? "Processing failed");
       if (!Array.isArray(data.players)) throw new Error("Unexpected response from Claude");
 
+      // Sanitize notes — Claude sometimes returns a string or null instead of the expected shape
+      const rawNotes = data.notes;
+      const safeNotes: ExtractedData["notes"] =
+        rawNotes && typeof rawNotes === "object" && !Array.isArray(rawNotes)
+          ? {
+              "2B": Array.isArray(rawNotes["2B"]) ? rawNotes["2B"] : [],
+              "3B": Array.isArray(rawNotes["3B"]) ? rawNotes["3B"] : [],
+              HR:   Array.isArray(rawNotes.HR)    ? rawNotes.HR    : [],
+            }
+          : { "2B": [], "3B": [], HR: [] };
+
       // Pre-populate 2B/3B/HR per player from the notes section
-      const notes = data.notes ?? {};
       const playersWithXBH = data.players.map((p: ExtractedPlayer) => ({
         ...p,
-        doubles: resolveNoteCount(notes["2B"] ?? [], p.name),
-        triples: resolveNoteCount(notes["3B"] ?? [], p.name),
-        hr:      resolveNoteCount(notes.HR    ?? [], p.name),
+        doubles: resolveNoteCount(safeNotes["2B"] ?? [], p.name),
+        triples: resolveNoteCount(safeNotes["3B"] ?? [], p.name),
+        hr:      resolveNoteCount(safeNotes.HR    ?? [], p.name),
       }));
-      setExtracted({ ...data, players: playersWithXBH });
+      setExtracted({ ...data, notes: safeNotes, players: playersWithXBH });
 
       // Pre-fill name map with fuzzy matches against this team's roster
       const roster = selectedTeam?.players ?? [];
@@ -327,11 +337,11 @@ export function ScoreBookUploadForm({ games, teams, seasonType }: Props) {
               </table>
             </div>
 
-            {extracted.notes && Object.values(extracted.notes).some((v) => v && v.length > 0) && (
+            {extracted.notes && Object.values(extracted.notes).some((v) => Array.isArray(v) && v.length > 0) && (
               <div style={{ marginTop: "0.75rem", fontSize: "0.85rem", color: "var(--ink-soft)" }}>
                 {Object.entries(extracted.notes).map(([type, names]) =>
-                  names && (names as string[]).length > 0
-                    ? <div key={type}><strong>{type}:</strong> {(names as string[]).join(", ")}</div>
+                  Array.isArray(names) && names.length > 0
+                    ? <div key={type}><strong>{type}:</strong> {names.join(", ")}</div>
                     : null
                 )}
               </div>
