@@ -126,62 +126,68 @@ export function GameResultInlineEditor(props: GameResultInlineEditorProps) {
     <form className="result-inline-form" onSubmit={onSubmit}>
       {isEditing ? (
         <>
-          <select
-            value={winnerTeamId}
-            onChange={(event) => onWinnerChange(event.target.value)}
-            disabled={tieGame}
-          >
-            <option value="">Winner</option>
-            {teamOptions.map((team) => (
-              <option key={team.id} value={team.id} disabled={team.id === loserTeamId}>
-                {team.name}
-              </option>
-            ))}
-          </select>
+          {/* Row 1: dropdowns + tie */}
+          <div className="result-inline-form-row">
+            <select
+              value={winnerTeamId}
+              onChange={(event) => onWinnerChange(event.target.value)}
+              disabled={tieGame}
+            >
+              <option value="">Winner</option>
+              {teamOptions.map((team) => (
+                <option key={team.id} value={team.id} disabled={team.id === loserTeamId}>
+                  {team.name}
+                </option>
+              ))}
+            </select>
 
-          <select
-            value={loserTeamId}
-            onChange={(event) => onLoserChange(event.target.value)}
-            disabled={tieGame}
-          >
-            <option value="">Loser</option>
-            {teamOptions.map((team) => (
-              <option key={team.id} value={team.id} disabled={team.id === winnerTeamId}>
-                {team.name}
-              </option>
-            ))}
-          </select>
+            <select
+              value={loserTeamId}
+              onChange={(event) => onLoserChange(event.target.value)}
+              disabled={tieGame}
+            >
+              <option value="">Loser</option>
+              {teamOptions.map((team) => (
+                <option key={team.id} value={team.id} disabled={team.id === winnerTeamId}>
+                  {team.name}
+                </option>
+              ))}
+            </select>
 
-          <label className="result-inline-check">
-            <input
-              type="checkbox"
-              checked={tieGame}
-              onChange={(event) => onTieChange(event.target.checked)}
-            />
-            Tie
-          </label>
+            <label className="result-inline-check">
+              <input
+                type="checkbox"
+                checked={tieGame}
+                onChange={(event) => onTieChange(event.target.checked)}
+              />
+              Tie
+            </label>
+          </div>
 
-          <button type="submit" disabled={saving}>
-            {saving ? "Saving..." : "Save"}
-          </button>
+          {/* Row 2: action buttons always on their own line */}
+          <div className="result-inline-form-row">
+            <button type="submit" disabled={saving}>
+              {saving ? "Saving..." : "Save"}
+            </button>
 
-          <button
-            type="button"
-            className="ghost-button"
-            onClick={() => {
-              setWinnerTeamId(props.winnerTeamId ?? "");
-              setLoserTeamId(props.loserTeamId ?? "");
-              setTieGame(props.isTie);
-              setStatus(null);
-              setIsEditing(false);
-            }}
-          >
-            Cancel
-          </button>
+            <button
+              type="button"
+              className="ghost-button"
+              onClick={() => {
+                setWinnerTeamId(props.winnerTeamId ?? "");
+                setLoserTeamId(props.loserTeamId ?? "");
+                setTieGame(props.isTie);
+                setStatus(null);
+                setIsEditing(false);
+              }}
+            >
+              Cancel
+            </button>
 
-          <button type="button" className="ghost-button" onClick={onWeatherCancel} disabled={saving}>
-            ⛈ Weather
-          </button>
+            <button type="button" className="ghost-button" onClick={onWeatherCancel} disabled={saving}>
+              ⛈ Weather
+            </button>
+          </div>
         </>
       ) : (
         <button

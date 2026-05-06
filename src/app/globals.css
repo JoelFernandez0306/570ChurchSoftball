@@ -501,20 +501,30 @@ button:hover,
 }
 
 .result-inline-form {
-  display: inline-flex;
-  flex-wrap: wrap;
-  gap: 0.35rem;
+  display: flex;
+  flex-direction: column;
+  gap: 0.4rem;
+  align-items: flex-start;
+}
+
+.result-inline-form-row {
+  display: flex;
+  flex-wrap: nowrap;
   align-items: center;
+  gap: 0.4rem;
 }
 
 .result-inline-form select {
-  min-width: 9.5rem;
+  width: 10rem;
   padding: 0.34rem 0.45rem;
+  flex-shrink: 0;
 }
 
 .result-inline-form button {
   padding: 0.34rem 0.55rem;
   font-size: 0.78rem;
+  white-space: nowrap;
+  flex-shrink: 0;
 }
 
 .result-inline-check {
