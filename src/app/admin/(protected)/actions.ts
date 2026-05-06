@@ -809,6 +809,22 @@ export async function removeAdminAction(formData: FormData) {
 
 // ── Scorebook upload stats submission ─────────────────────────────────────────
 
+export interface GameStatRow {
+  player_name: string;
+  team_name: string;
+  season_type: string;
+  ab: number;
+  r: number;
+  h: number;
+  singles: number;
+  doubles: number;
+  triples: number;
+  hr: number;
+  rbi: number;
+  bb: number;
+  so: number;
+}
+
 export interface ScoreBookPlayerStat {
   player_name: string;
   team_name: string;
@@ -901,4 +917,68 @@ export async function saveScoreBookStatsAction(
   }
 
   revalidatePath("/stats");
+}
+
+// Upsert corrected per-game stats and re-aggregate season totals.
+// Used by the Correct Stats admin page.
+export async function updateGameStatsAction(
+  gameId: string,
+  rows: GameStatRow[],
+) {
+  await requireAdminPageAccess();
+  const supabase = getServiceSupabaseClient();
+  if (!gameId || rows.length === 0) throw new Error("Missing game ID or rows.");
+
+  const now = new Date().toISOString();
+  const upsertRows = rows.map((r) => ({
+    game_id: gameId,
+    player_name: r.player_name,
+    team_name: r.team_name,
+    season_type: r.season_type,
+    ab: r.ab, r: r.r, h: r.h,
+    singles: r.singles, doubles: r.doubles, triples: r.triples, hr: r.hr,
+    rbi: r.rbi, bb: r.bb, so: r.so,
+    scraped_at: now,
+  }));
+
+  for (let i = 0; i < upsertRows.length; i += 50) {
+    const { error } = await supabase.schema("league").from("player_game_stats")
+      .upsert(upsertRows.slice(i, i + 50), { onConflict: "game_id,player_name,team_name", ignoreDuplicates: false });
+    if (error) throw new Error(`Failed to update stats: ${error.message}`);
+  }
+
+  // Re-aggregate for each affected team
+  const teams = [...new Set(rows.map((r) => r.team_name))];
+  for (const team of teams) {
+    const seasonType = rows.find((r) => r.team_name === team)!.season_type;
+    const { data: allRows, error: readErr } = await supabase
+      .schema("league").from("player_game_stats")
+      .select("player_name,ab,r,h,singles,doubles,triples,hr,rbi,bb,so")
+      .eq("team_name", team).eq("season_type", seasonType);
+    if (readErr) throw new Error(`Failed to read game stats: ${readErr.message}`);
+
+    const byPlayer = new Map<string, { gp: number; ab: number; r: number; h: number; singles: number; doubles: number; triples: number; hr: number; rbi: number; bb: number; so: number }>();
+    for (const row of allRows ?? []) {
+      const agg = byPlayer.get(row.player_name) ?? { gp: 0, ab: 0, r: 0, h: 0, singles: 0, doubles: 0, triples: 0, hr: 0, rbi: 0, bb: 0, so: 0 };
+      agg.gp++;
+      for (const col of ["ab","r","h","singles","doubles","triples","hr","rbi","bb","so"] as const) {
+        agg[col] += (row[col] ?? 0) as number;
+      }
+      byPlayer.set(row.player_name, agg);
+    }
+
+    const aggregated = [...byPlayer.entries()].map(([player_name, agg]) => ({
+      player_name, team_name: team, season_type: seasonType, synced_at: now,
+      avg: agg.ab > 0 ? agg.h / agg.ab : null, ...agg,
+    }));
+
+    for (let i = 0; i < aggregated.length; i += 50) {
+      const { error } = await supabase.schema("league").from("player_batting_stats")
+        .upsert(aggregated.slice(i, i + 50), { onConflict: "player_name,team_name,season_type", ignoreDuplicates: false });
+      if (error) throw new Error(`Failed to re-aggregate: ${error.message}`);
+    }
+  }
+
+  revalidatePath("/stats");
+  revalidatePath("/admin/correct-stats");
 }

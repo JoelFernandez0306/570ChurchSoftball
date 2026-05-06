@@ -22,6 +22,9 @@ interface ExtractedPlayer {
   ab: number;
   r: number;
   h: number;
+  doubles: number;
+  triples: number;
+  hr: number;
   rbi: number;
   bb: number;
   so: number;
@@ -133,12 +136,20 @@ export function ScoreBookUploadForm({ games, teams, seasonType }: Props) {
       if (!res.ok) throw new Error(data.error ?? "Processing failed");
       if (!Array.isArray(data.players)) throw new Error("Unexpected response from Claude");
 
-      setExtracted(data);
+      // Pre-populate 2B/3B/HR per player from the notes section
+      const notes = data.notes ?? {};
+      const playersWithXBH = data.players.map((p: ExtractedPlayer) => ({
+        ...p,
+        doubles: resolveNoteCount(notes["2B"] ?? [], p.name),
+        triples: resolveNoteCount(notes["3B"] ?? [], p.name),
+        hr:      resolveNoteCount(notes.HR    ?? [], p.name),
+      }));
+      setExtracted({ ...data, players: playersWithXBH });
 
       // Pre-fill name map with fuzzy matches against this team's roster
       const roster = selectedTeam?.players ?? [];
       const initMap: Record<number, string> = {};
-      data.players.forEach((p: ExtractedPlayer, i: number) => {
+      playersWithXBH.forEach((p: ExtractedPlayer, i: number) => {
         initMap[i] = fuzzyMatch(p.name, roster);
       });
       setNameMap(initMap);
@@ -167,7 +178,6 @@ export function ScoreBookUploadForm({ games, teams, seasonType }: Props) {
     setSaving(true);
     setError(null);
     try {
-      const notes = extracted?.notes ?? {};
       const rows: ScoreBookPlayerStat[] = [];
 
       extracted!.players.forEach((_, idx) => {
@@ -176,10 +186,10 @@ export function ScoreBookUploadForm({ games, teams, seasonType }: Props) {
         const verifiedName = nameMap[idx];
         if (!verifiedName || verifiedName === "SKIP") return;
 
-        const doubles = resolveNoteCount(notes["2B"] ?? [], p.name);
-        const triples  = resolveNoteCount(notes["3B"] ?? [], p.name);
-        const hr       = resolveNoteCount(notes.HR  ?? [], p.name);
-        const singles  = Math.max(0, p.h - doubles - triples - hr);
+        const doubles = p.doubles ?? 0;
+        const triples = p.triples ?? 0;
+        const hr      = p.hr      ?? 0;
+        const singles = Math.max(0, p.h - doubles - triples - hr);
 
         rows.push({
           player_name: verifiedName,
@@ -278,7 +288,7 @@ export function ScoreBookUploadForm({ games, teams, seasonType }: Props) {
                 <thead>
                   <tr>
                     <th>Player (as written)</th>
-                    <th>AB</th><th>R</th><th>H</th><th>RBI</th><th>BB</th><th>SO</th>
+                    <th>AB</th><th>R</th><th>H</th><th>2B</th><th>3B</th><th>HR</th><th>RBI</th><th>BB</th><th>SO</th>
                     <th>Status</th>
                   </tr>
                 </thead>
@@ -290,7 +300,7 @@ export function ScoreBookUploadForm({ games, teams, seasonType }: Props) {
                         <td style={{ textDecoration: p.crossed_out ? "line-through" : "none", fontWeight: 500 }}>
                           {p.name}
                         </td>
-                        {(["ab","r","h","rbi","bb","so"] as (keyof ExtractedPlayer)[]).map((f) => (
+                        {(["ab","r","h","doubles","triples","hr","rbi","bb","so"] as (keyof ExtractedPlayer)[]).map((f) => (
                           <td key={f}>
                             <input
                               type="number" min={0} value={p[f] as number}
