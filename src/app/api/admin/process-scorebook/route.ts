@@ -36,16 +36,23 @@ export async function POST(req: NextRequest) {
 
   const prompt = `You are analyzing a handwritten softball scorebook page for the team "${teamName}".
 
-Extract the batting lineup stats for THIS ONE TEAM ONLY. Return ONLY valid JSON — no markdown, no explanation.
+SCOREBOOK LAYOUT: This is a standard paper softball scorebook. Each row is one player.
+- Left column: player name
+- Middle columns: small cells or diamonds tracking each at-bat per inning (ignore these)
+- Right side: summary totals for the game — typically columns labeled AB, R, H, RBI, and sometimes BB/SO
 
-Return this exact structure:
+Your job: read the SUMMARY TOTALS columns on the right side of each player row.
+Typical values: AB is 1–5, R is 0–5, H is 0–5, RBI is 0–6. Numbers are small single digits.
+
+Return ONLY valid JSON — no markdown, no explanation.
+
 {
   "players": [
     {
       "name": "Player name as written",
-      "ab": 0,
-      "r": 0,
-      "h": 0,
+      "ab": 2,
+      "r": 1,
+      "h": 1,
       "rbi": 0,
       "bb": 0,
       "so": 0,
@@ -60,12 +67,11 @@ Return this exact structure:
 }
 
 Rules:
-- "crossed_out": true if the player row is scribbled out, crossed out, or otherwise marked as an error. Include these rows but flag them.
-- For notes (2B/3B/HR): list player names as written. If a player hit multiple, write "Name 2" (e.g., "Zach Zimmerman 2").
-- If a stat cell is crossed out but it is part of a valid row, still flag the whole row as crossed_out: true.
-- If you cannot read a number clearly, use 0.
-- Skip TEAM totals rows — only include individual player rows.
-- Extract exactly what you see. Do not invent or guess missing values.`;
+- Read every digit you can see. Commit to your best reading — do not default to 0 just because handwriting is hard to read. A reasonable guess is better than 0.
+- If BB or SO columns are not present in the scorebook, leave them as 0.
+- "crossed_out": true if the entire player row is crossed out or marked as an error/void.
+- For notes (2B/3B/HR): look for a notes/extras section on the page listing who hit extra-base hits. If a player hit multiple, write "Name 2" (e.g., "Zach 2").
+- Skip any TEAM totals row at the bottom — only individual player rows.`;
 
   let text = "";
   try {
