@@ -37,6 +37,7 @@ export interface Game {
   home_team_id: UUID;
   away_team_id: UUID;
   is_tie: boolean;
+  cancelled: boolean;
   winner_team_id: UUID | null;
   loser_team_id: UUID | null;
   result_source: ResultSource | null;
