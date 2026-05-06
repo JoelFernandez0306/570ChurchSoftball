@@ -1,5 +1,5 @@
 import { loadGamesView, loadActiveCompetitionPhase } from "@/lib/league-data";
-import { getServiceSupabaseClient } from "@/lib/supabase-server";
+import { getServiceSupabaseClient } from "@/lib/supabase/service";
 import { CorrectStatsForm } from "@/components/correct-stats-form";
 import type { GameStatRow } from "@/app/admin/(protected)/actions";
 
