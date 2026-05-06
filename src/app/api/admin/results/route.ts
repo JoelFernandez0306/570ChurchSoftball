@@ -15,6 +15,7 @@ const resultSchema = z.object({
   winnerTeamId: z.string().uuid().optional(),
   loserTeamId: z.string().uuid().optional(),
   tieGame: z.boolean().optional().default(false),
+  cancelled: z.boolean().optional().default(false),
 });
 
 export async function POST(request: Request) {
@@ -32,9 +33,9 @@ export async function POST(request: Request) {
       );
     }
 
-    if (!payload.tieGame && (!payload.winnerTeamId || !payload.loserTeamId)) {
+    if (!payload.cancelled && !payload.tieGame && (!payload.winnerTeamId || !payload.loserTeamId)) {
       return NextResponse.json(
-        { error: "Winner and loser are required unless the game is marked as a tie." },
+        { error: "Winner and loser are required unless the game is a tie or cancelled." },
         { status: 400 },
       );
     }
@@ -59,11 +60,21 @@ export async function POST(request: Request) {
 
     const supabase = getServiceSupabaseClient();
     const activeScope = await loadActiveLeagueScope();
-    const updatePayload = payload.tieGame
+    const updatePayload = payload.cancelled
+      ? {
+          winner_team_id: null,
+          loser_team_id: null,
+          is_tie: false,
+          cancelled: true,
+          result_source: "manual",
+          reported_by: admin.user.id,
+        }
+      : payload.tieGame
       ? {
           winner_team_id: null,
           loser_team_id: null,
           is_tie: true,
+          cancelled: false,
           result_source: "manual",
           reported_by: admin.user.id,
         }
@@ -71,6 +82,7 @@ export async function POST(request: Request) {
           winner_team_id: payload.winnerTeamId,
           loser_team_id: payload.loserTeamId,
           is_tie: false,
+          cancelled: false,
           result_source: "manual",
           reported_by: admin.user.id,
         };

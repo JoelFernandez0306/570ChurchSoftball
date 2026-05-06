@@ -151,9 +151,12 @@ export default async function AdminSchedulePage({
                   winnerTeamId={game.winner_team_id}
                   loserTeamId={game.loser_team_id}
                   isTie={game.is_tie}
+                  isCancelled={game.cancelled ?? false}
                 />
 
-                {game.is_tie ? (
+                {game.cancelled ? (
+                  <span className="badge" style={{ background: "#e0e7ff", color: "#3730a3" }}>⛈ Weather Cancellation</span>
+                ) : game.is_tie ? (
                   <span className="badge badge-tie">Tie Game</span>
                 ) : game.winner_team_name && game.loser_team_name ? (
                   <div className="inline-list">

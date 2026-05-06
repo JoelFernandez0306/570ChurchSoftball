@@ -395,7 +395,7 @@ export async function loadGames(
     .schema("league")
     .from("games")
     .select(
-      "id,season_name,game_phase,game_date,game_time,location,game_number,home_team_id,away_team_id,is_tie,winner_team_id,loser_team_id,result_source,created_at,updated_at",
+      "id,season_name,game_phase,game_date,game_time,location,game_number,home_team_id,away_team_id,is_tie,cancelled,winner_team_id,loser_team_id,result_source,created_at,updated_at",
     )
     .eq("season_name", scope.seasonName)
     .eq("game_phase", scope.competitionPhase)
@@ -408,7 +408,7 @@ export async function loadGames(
       .schema("league")
       .from("games")
       .select(
-        "id,season_name,game_date,game_time,location,game_number,home_team_id,away_team_id,is_tie,winner_team_id,loser_team_id,result_source,created_at,updated_at",
+        "id,season_name,game_date,game_time,location,game_number,home_team_id,away_team_id,is_tie,cancelled,winner_team_id,loser_team_id,result_source,created_at,updated_at",
       )
       .eq("season_name", scope.seasonName)
       .order("game_date", { ascending: true })

@@ -12,6 +12,7 @@ interface GameResultEditorProps {
   winnerTeamId: string | null;
   loserTeamId: string | null;
   isTie: boolean;
+  isCancelled?: boolean;
 }
 
 export function GameResultEditor(props: GameResultEditorProps) {
@@ -21,6 +22,27 @@ export function GameResultEditor(props: GameResultEditorProps) {
   const [tieGame, setTieGame] = useState(props.isTie);
   const [saving, setSaving] = useState(false);
   const [status, setStatus] = useState<string | null>(null);
+
+  async function onCancelWeather() {
+    if (!confirm("Mark this game as cancelled (weather)? This will clear any recorded result.")) return;
+    setSaving(true);
+    setStatus(null);
+    try {
+      const response = await fetch("/api/admin/results", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ gameId: props.gameId, cancelled: true }),
+      });
+      const payload = await response.json().catch(() => ({}));
+      if (!response.ok) { setStatus(payload.error ?? "Could not save."); return; }
+      setStatus("Game marked as cancelled.");
+      router.refresh();
+    } catch (error) {
+      setStatus(error instanceof Error ? error.message : "Request failed");
+    } finally {
+      setSaving(false);
+    }
+  }
 
   const teamOptions = [
     { id: props.homeTeamId, name: props.homeTeamName },
@@ -152,8 +174,19 @@ export function GameResultEditor(props: GameResultEditorProps) {
         </button>
       </div>
 
+      <div style={{ alignSelf: "end" }}>
+        <button
+          type="button"
+          onClick={onCancelWeather}
+          disabled={saving}
+          style={{ background: "var(--surface-alt)", color: "var(--ink-soft)", border: "1px solid var(--border)" }}
+        >
+          ⛈ Weather Cancellation
+        </button>
+      </div>
+
       {status ? (
-        <p className={status.toLowerCase().includes("saved") ? "success-text" : "error-text"}>{status}</p>
+        <p className={status.toLowerCase().includes("saved") || status.toLowerCase().includes("cancelled") ? "success-text" : "error-text"}>{status}</p>
       ) : null}
     </form>
   );
