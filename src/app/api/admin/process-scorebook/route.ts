@@ -90,7 +90,7 @@ Rules:
   try {
     const response = await client.messages.create({
       model: "claude-sonnet-4-6",
-      max_tokens: 2048,
+      max_tokens: 4096,
       messages: [
         {
           role: "user",
@@ -109,9 +109,10 @@ Rules:
   }
 
   try {
-    const clean = text.replace(/^```(?:json)?\s*/i, "").replace(/\s*```\s*$/i, "").trim();
-    const data = JSON.parse(clean);
-    // Validate expected shape
+    // Extract the first {...} block regardless of any surrounding explanation text
+    const jsonMatch = text.match(/\{[\s\S]*\}/);
+    if (!jsonMatch) throw new Error("No JSON object found in response");
+    const data = JSON.parse(jsonMatch[0]);
     if (!Array.isArray(data.players)) throw new Error("Missing players array");
     return NextResponse.json(data);
   } catch {
