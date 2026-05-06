@@ -12,17 +12,39 @@ interface GameResultInlineEditorProps {
   winnerTeamId: string | null;
   loserTeamId: string | null;
   isTie: boolean;
+  isCancelled?: boolean;
 }
 
 export function GameResultInlineEditor(props: GameResultInlineEditorProps) {
   const router = useRouter();
-  const hasExistingResult = props.isTie || (Boolean(props.winnerTeamId) && Boolean(props.loserTeamId));
+  const hasExistingResult = props.isCancelled || props.isTie || (Boolean(props.winnerTeamId) && Boolean(props.loserTeamId));
   const [winnerTeamId, setWinnerTeamId] = useState(props.winnerTeamId ?? "");
   const [loserTeamId, setLoserTeamId] = useState(props.loserTeamId ?? "");
   const [tieGame, setTieGame] = useState(props.isTie);
   const [isEditing, setIsEditing] = useState(!hasExistingResult);
   const [saving, setSaving] = useState(false);
   const [status, setStatus] = useState<string | null>(null);
+
+  async function onWeatherCancel() {
+    if (!confirm("Mark this game as cancelled (weather)?")) return;
+    setSaving(true);
+    setStatus(null);
+    try {
+      const response = await fetch("/api/admin/results", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ gameId: props.gameId, cancelled: true }),
+      });
+      const payload = await response.json().catch(() => ({}));
+      if (!response.ok) { setStatus(payload.error ?? "Could not save."); return; }
+      setIsEditing(false);
+      router.refresh();
+    } catch (error) {
+      setStatus(error instanceof Error ? error.message : "Request failed.");
+    } finally {
+      setSaving(false);
+    }
+  }
 
   const teamOptions = [
     { id: props.homeTeamId, name: props.homeTeamName },
@@ -155,6 +177,10 @@ export function GameResultInlineEditor(props: GameResultInlineEditorProps) {
             }}
           >
             Cancel
+          </button>
+
+          <button type="button" className="ghost-button" onClick={onWeatherCancel} disabled={saving}>
+            ⛈ Weather
           </button>
         </>
       ) : (

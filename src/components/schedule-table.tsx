@@ -9,6 +9,16 @@ function resultBadge(game: GameView) {
     <span className="result-pill season">{formatCompetitionPhaseLabel(game.game_phase)}</span>
   );
 
+  if (game.cancelled) {
+    return (
+      <div className="result-stack">
+        <span className="badge" style={{ background: "#e0e7ff", color: "#3730a3" }}>⛈ Weather Cancellation</span>
+        {seasonLabel}
+        {phaseLabel}
+      </div>
+    );
+  }
+
   if (game.is_tie) {
     return (
       <div className="result-stack">
@@ -86,6 +96,7 @@ export function ScheduleTable({
                       winnerTeamId={game.winner_team_id}
                       loserTeamId={game.loser_team_id}
                       isTie={game.is_tie}
+                      isCancelled={game.cancelled ?? false}
                     />
                   ) : null}
                 </div>
