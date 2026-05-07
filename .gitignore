@@ -50,6 +50,9 @@ next-env.d.ts
 gc-session.json
 gc-session-secret.txt
 
+# One-time setup scripts (may contain hardcoded values)
+scripts/restore-schedule.mjs
+
 # GC team URLs (contains team IDs — keep local only)
 gc-team-urls.txt
 gc-game-debug*.png
