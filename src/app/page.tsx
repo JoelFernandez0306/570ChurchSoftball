@@ -102,26 +102,8 @@ export default async function HomePage() {
               </div>
             </>
           ) : (
-            /* Non-game day — 2-column grid */
+            /* Non-game day — standings only */
             <div className="card-grid" style={{ gridTemplateColumns: "repeat(2, minmax(0, 1fr))" }}>
-              <aside className="card">
-                <h3>Live Scoreboard</h3>
-                {isGameDay && !hasScoreboardWidget ? (
-                  <p className="empty-state">
-                    Games are on today! Scoreboard setup pending — check back soon.
-                  </p>
-                ) : nextGame ? (
-                  <p className="empty-state">
-                    No live game right now.{" "}
-                    Next up:{" "}
-                    <strong>{formatGameDate(nextGame.game_date)}</strong>
-                    {nextGame.game_time ? <> at <strong>{formatGameTime(nextGame.game_time)}</strong></> : null}.
-                  </p>
-                ) : (
-                  <p className="empty-state">No upcoming games scheduled.</p>
-                )}
-              </aside>
-
               <aside className="card">
                 <h3>Top of the Table</h3>
                 {topOfTable}
