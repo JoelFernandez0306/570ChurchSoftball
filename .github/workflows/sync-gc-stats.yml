@@ -1,11 +1,11 @@
 name: Sync GameChanger Stats
 
 on:
-  # 9:15 PM ET target. GitHub Actions scheduling can be delayed 30-90 min
-  # on busy nights, so we schedule for 8:15 PM EDT (00:15 UTC) to land
-  # close to 9:15 PM even with delays.  Covers EDT (Apr–Nov, UTC-4).
+  # 9:15 PM EDT target. EDT = UTC-4, so 9:15 PM EDT = 01:15 UTC.
+  # GitHub Actions can delay 30-60 min on busy nights, so actual fire
+  # time is 9:15–10:15 PM EDT — games should be finished by then.
   schedule:
-    - cron: "15 0 * * *"
+    - cron: "15 1 * * *"
   # Allow manual trigger from GitHub Actions UI
   workflow_dispatch:
     inputs:
