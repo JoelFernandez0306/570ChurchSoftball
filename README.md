@@ -55,11 +55,11 @@ A full-featured website for a church softball league. It shows schedules, standi
 
 ![Standings and Upcoming Games](docs/screenshots/standings_Upcoming.jpeg)
 
-> 📸 Screenshot: Schedule page with game results filled in
+![Schedule page with game results filled in](docs/screenshots/Schedule_page.jpeg)
 
-> 📸 Screenshot: Standings page
+![Standings Page](docs/screenshots/Standings_page.jpeg)
 
-> 📸 Screenshot: Teams & Rosters page
+![Standings and Upcoming Games](docs/screenshots/Team_Roster_Page.jpeg)
 
 ### Pages Only Admins Can See
 
@@ -114,11 +114,11 @@ One of the most useful features: instead of logging into the website to enter a 
 
 **Example:**
 ```
-05/11 G1 Mt Bethel W LWHOW L
+05/05 G1 Innovation Church W Christian Life Assembly L
 ```
-→ Mt Bethel Church wins Game 1 on May 11th. L.W.H.O.W loses.
+→ Innovation Church wins Game 1 on May 5th. Christian Life Assembly loses.
 
-> 📸 Screenshot: Text message conversation showing a result submission and the confirmation reply
+![Text message conversation showing a result submission and the confirmation reply](docs/screenshots/Textmessage_convo.PNG)
 
 **What if something goes wrong?**
 If the system can't figure out what you sent, it texts you back with a message explaining what it didn't understand — like if the team name didn't match anything, or the game wasn't found on the schedule. Just try again with a correction.
@@ -135,7 +135,9 @@ If your league scores games using the **GameChanger** app, you can show a live s
 **What it looks like:**
 On a game day, a "Live Scoreboard" panel appears on the home page. It shows the current score, inning, and game status — updating in real time as the scorer enters plays in the GameChanger app. The scoreboard is hidden completely when no game is actively being scored.
 
-> 📸 Screenshot: Home page with the live scoreboard widget showing an active game
+![Live Scoreboard](docs/screenshots/Live%20Scoreboard.jpeg)
+
+![Scoreboard hidden until live games are scored](docs/screenshots/Scoreboard_hidden.jpeg)
 
 **How to set it up (do this once):**
 
@@ -149,7 +151,7 @@ On a game day, a "Live Scoreboard" panel appears on the home page. It shows the 
 
 That's it. On the next game day, the live scoreboard will appear on the home page automatically.
 
-> 📸 Screenshot: Admin dashboard GameChanger Integration section with the widget ID field
+![Admin dashboard GameChanger Integration section with the widget ID field](docs/screenshots/WidetID.jpeg)
 
 ---
 
@@ -160,7 +162,7 @@ The **Stats page** (`/stats`) shows a batting leaderboard for the whole league. 
 **What stats are shown:**
 Games Played (GP), At-Bats (AB), Runs (R), Hits (H), Doubles (2B), Triples (3B), Home Runs (HR), RBI, Walks (BB), Strikeouts (SO), and Batting Average (AVG).
 
-> 📸 Screenshot: Stats page showing the batting leaderboard
+![Stats page showing the batting leaderboard](docs/screenshots/Battingstats.jpeg)
 
 **How it works:**
 A GitHub Actions job runs automatically every night at around 9:15 PM Eastern Time. It visits each team's GameChanger schedule page, reads the stats, and saves them to the database. The stats page on the website then shows the latest numbers.
@@ -192,7 +194,11 @@ For each team in the league:
 
 Some scorers keep stats on a **paper scorebook** instead of using GameChanger. This feature lets you take a photo of the scorebook page and have the website automatically read the batting stats from it using AI.
 
-> 📸 Screenshot: The scorebook upload page showing an image upload box and extracted stats
+![The scorebook upload page step 1](docs/screenshots/Paperscorebook1.jpeg)
+
+![The scorebook upload page step 2](docs/screenshots/Paperscorebook2.jpeg)
+
+![The scorebook upload page step 3](docs/screenshots/Paperscorebook3.jpeg)
 
 **How to use it:**
 
@@ -243,9 +249,6 @@ Supabase is where all your data lives — teams, games, standings, players, ever
    - **Database Password:** Choose a strong password — write it down somewhere safe.
    - **Region:** Pick the one closest to you (e.g., US East for Pennsylvania).
 5. Click **Create new project** and wait about 2 minutes for it to finish setting up.
-
-> 📸 Screenshot: Supabase new project creation screen
-
 Once it's ready, you'll need three pieces of information from Supabase. Find them by going to your project and clicking **Settings** → **API**:
 
 - **Project URL** — looks like `https://abcdefghijkl.supabase.co`
@@ -253,8 +256,6 @@ Once it's ready, you'll need three pieces of information from Supabase. Find the
 - **service_role key** — another long string starting with `eyJ...` (keep this secret — never share it)
 
 Write all three of these down. You'll need them in Step 5.
-
-> 📸 Screenshot: Supabase API settings page showing where to find the URL and keys
 
 ---
 
@@ -270,8 +271,6 @@ Before the website can work, you need to create all the database tables. This is
 
 If all the queries say "Success" you're good. If you see an error, read it carefully — most errors are because a script was run out of order.
 
-> 📸 Screenshot: Supabase SQL editor with a migration script pasted in
-
 ---
 
 ### Step 3 — Set Up Twilio (SMS Texting)
@@ -283,8 +282,6 @@ Twilio gives you a real phone number that people can text to report game results
 3. On the Twilio dashboard, click **Get a trial phone number** (the free trial gives you a number you can test with).
 4. Write down your new **Twilio phone number** (it will be in a format like `+15705551234`).
 5. Go to **Account** → **API keys & tokens** and find your **Auth Token**. Write it down.
-
-> 📸 Screenshot: Twilio dashboard showing the phone number and account SID
 
 You'll need:
 - **Twilio phone number** (the number people text)
@@ -308,8 +305,6 @@ Vercel will take your code and turn it into a live website that anyone can visit
 6. Click **Deploy**.
 
 Vercel will build and deploy your site. After a minute or two, it will give you a URL like `https://570-church-softball.vercel.app`. Visit that URL — the site is live! (It won't work properly yet because you haven't added your secrets, but you'll see the page.)
-
-> 📸 Screenshot: Vercel deploy screen showing a successful deployment
 
 Write down your **site URL** (e.g., `https://570-church-softball.vercel.app`). You'll need it in the next step. You can also set up a custom domain later through Vercel's settings.
 
@@ -338,8 +333,6 @@ Write down your **site URL** (e.g., `https://570-church-softball.vercel.app`). Y
 
 3. After adding all variables, go back to Vercel's **Deployments** tab and click **Redeploy** on the most recent deployment. This makes the site restart with your new settings.
 
-> 📸 Screenshot: Vercel environment variables settings page with the variables filled in
-
 ---
 
 ### Step 6 — Connect Twilio to Your Website
@@ -355,8 +348,6 @@ Now you need to tell Twilio "when someone sends a text to my number, forward it 
    (Replace `YOUR-SITE` with your actual Vercel URL.)
 7. Make sure the method is set to **HTTP POST**.
 8. Click **Save**.
-
-> 📸 Screenshot: Twilio phone number configuration page with the webhook URL filled in
 
 Now, whenever anyone texts your Twilio number, Twilio will automatically forward that text to your website to process.
 
@@ -377,8 +368,6 @@ Now create your admin account:
 3. Enter your email address and choose a password.
 4. Check your email — you'll get a confirmation link. Click it.
 5. You're now logged in as an admin!
-
-> 📸 Screenshot: Admin login page with the Bootstrap First Admin button
 
 **To invite more admins later:**
 1. Log in and go to `/admin/dashboard`.
@@ -407,7 +396,7 @@ Each team needs short nicknames the SMS system can recognize. For example, "L.W.
 3. Add as many aliases as you want for each team.
 4. Click **Save**.
 
-> 📸 Screenshot: Team management page showing team list and alias editor
+![Team management page showing team list and alias editor](docs/screenshots/CreateTeam.jpeg)
 
 ---
 
@@ -426,7 +415,7 @@ Each team needs short nicknames the SMS system can recognize. For example, "L.W.
 
 Repeat until every game is on the schedule.
 
-> 📸 Screenshot: Schedule admin page with a game creation form
+![Schedule admin page with a game creation form](docs/screenshots/ScheduleBuilder.jpeg)
 
 **Playoffs:**
 When the regular season ends and playoffs begin:
@@ -445,8 +434,6 @@ By default, nobody can text results to the Twilio number — you have to approve
 3. Enter the phone number in the format `+15705551234` (start with `+1` for US numbers, then the area code and number with no spaces or dashes).
 4. Optionally add a label so you remember whose number it is (e.g., "Joel — scorekeeper").
 5. Click **Save**.
-
-> 📸 Screenshot: SMS allow-list admin page
 
 Repeat for every person who should be allowed to text in results. Anyone not on this list will have their texts ignored.
 
@@ -470,8 +457,6 @@ If you score games with the GameChanger app, you can embed a live scoreboard on 
 7. In your website admin dashboard at `/admin/dashboard`, scroll to **GameChanger Integration**.
 8. Paste the ID into the **Scoreboard Widget ID** field.
 9. Click **Save**.
-
-> 📸 Screenshot: GameChanger tools page showing the scoreboard widget embed code
 
 #### Organization Stats URL
 
@@ -531,8 +516,6 @@ For each team, get their GameChanger schedule URL:
 | `GC_SEASON_START` | First day of the season in `YYYY-MM-DD` format, e.g. `2026-04-01` |
 | `GC_SEASON_END` | Last day of regular season in `YYYY-MM-DD` format |
 | `GC_PLAYOFF_START` | First day of playoffs in `YYYY-MM-DD` format (can be same as season end if no playoffs) |
-
-> 📸 Screenshot: GitHub repository Secrets settings page
 
 4. After adding all secrets, go to the **Actions** tab in your GitHub repository.
 5. Find the **Sync GameChanger Stats** workflow.
