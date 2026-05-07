@@ -51,7 +51,9 @@ A full-featured website for a church softball league. It shows schedules, standi
 | **Stats** (`/stats`) | Batting statistics leaderboard pulled from GameChanger (games played, at-bats, hits, home runs, average, and more) |
 | **Rules** (`/rules`) | Official league rules (admins can edit these any time) |
 
-> 📸 Screenshot: Home page showing live scoreboard, top standings, and upcoming games
+![Live Scoreboard](docs/screenshots/Live%20Scoreboard.jpeg)
+
+![Standings and Upcoming Games](docs/screenshots/standings_Upcoming.jpeg)
 
 > 📸 Screenshot: Schedule page with game results filled in
 
