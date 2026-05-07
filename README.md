@@ -2,8 +2,6 @@
 
 A full-featured website for a church softball league. It shows schedules, standings, rosters, and batting stats to everyone. Admins can manage teams, enter game results, upload scorebooks, and even text in results from the field.
 
-> **Want to add screenshots?** Create a `docs/screenshots/` folder, drop your images in there, and replace the `> 📸 Screenshot:` placeholders below with `![description](docs/screenshots/your-image.png)`.
-
 ---
 
 ## Table of Contents
