@@ -44,7 +44,7 @@ export default async function HomePage() {
   const isGameDay = games.some((g) => g.game_date === today);
   const hasScoreboardWidget = Boolean(gcOrgScoreboardWidgetId);
 
-  const unplayed = games.filter((g) => !g.winner_team_id && !g.is_tie);
+  const unplayed = games.filter((g) => !g.winner_team_id && !g.is_tie && !g.cancelled);
   const nextGameDate = unplayed.find((g) => g.game_date >= today)?.game_date ?? null;
   const nextGame = nextGameDate ? unplayed.find((g) => g.game_date === nextGameDate) ?? null : null;
 
