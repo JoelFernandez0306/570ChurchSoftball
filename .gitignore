@@ -56,7 +56,11 @@ scripts/restore-schedule.mjs
 # GC team URLs (contains team IDs — keep local only)
 gc-team-urls.txt
 gc-game-debug*.png
+"gc-game-debug-Innovation Church '26.png"
 gc-game-api-responses.json
 gc-stats-debug.png
 gc-stats-page-text.txt
 gc-login-debug.png
+
+# Supabase CLI temp files (contain project ref and connection strings)
+supabase/.temp/
