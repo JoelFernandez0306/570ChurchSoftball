@@ -118,7 +118,7 @@ One of the most useful features: instead of logging into the website to enter a 
 ```
 → Innovation Church wins Game 1 on May 5th. Christian Life Assembly loses.
 
-![Text message conversation showing a result submission and the confirmation reply](docs/screenshots/Textmessage_convo.PNG)
+<img src="docs/screenshots/Textmessage_convo.PNG" alt="Text message conversation showing a result submission and the confirmation reply" width="590" />
 
 **What if something goes wrong?**
 If the system can't figure out what you sent, it texts you back with a message explaining what it didn't understand — like if the team name didn't match anything, or the game wasn't found on the schedule. Just try again with a correction.
