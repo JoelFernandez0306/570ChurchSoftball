@@ -22,16 +22,16 @@ export default async function CorrectStatsPage({
     const { data } = await supabase
       .schema("league")
       .from("player_game_stats")
-      .select("game_id,player_name,team_name,season_type,ab,r,h,singles,doubles,triples,hr,rbi,bb,so")
+      .select("game_id,game_date,player_name,team_name,season_type,ab,r,h,singles,doubles,triples,hr,rbi,bb,so")
       .eq("team_name", teamName)
       .order("player_name");
 
     // Group by game_id
-    const byGame = new Map<string, GameStatRow[]>();
+    const byGame = new Map<string, { date: string | null; rows: GameStatRow[] }>();
     for (const row of data ?? []) {
-      const rows = byGame.get(row.game_id) ?? [];
-      rows.push(row as GameStatRow);
-      byGame.set(row.game_id, rows);
+      const entry = byGame.get(row.game_id) ?? { date: row.game_date ?? null, rows: [] };
+      entry.rows.push(row as GameStatRow);
+      byGame.set(row.game_id, entry);
     }
     const gameIds = [...byGame.keys()];
 
@@ -41,12 +41,12 @@ export default async function CorrectStatsPage({
       : { data: [] };
     const leagueGameMap = new Map((leagueGames ?? []).map((g) => [g.id, g]));
 
-    gameGroups = [...byGame.entries()].map(([gameId, rows]) => {
+    gameGroups = [...byGame.entries()].map(([gameId, { date, rows }]) => {
       const lg = leagueGameMap.get(gameId);
       return {
         gameId,
         source: lg ? "scorebook" : "gamechanger",
-        gameDate: lg?.game_date ?? null,
+        gameDate: lg?.game_date ?? date,
         gameNumber: lg?.game_number ?? null,
         rows,
       };

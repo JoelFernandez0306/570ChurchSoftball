@@ -852,6 +852,15 @@ export async function saveScoreBookStatsAction(
 
   const now = new Date().toISOString();
 
+  // Look up game_date from league.games (gameId is the league game UUID for scorebook uploads)
+  const { data: gameRow } = await supabase
+    .schema("league")
+    .from("games")
+    .select("game_date")
+    .eq("id", gameId)
+    .single();
+  const gameDate: string | null = gameRow?.game_date ?? null;
+
   // Merge any duplicate (player_name, team_name) pairs — can happen if two extracted
   // players were mapped to the same roster name in the verify step.
   const merged = new Map<string, typeof players[0]>();
@@ -870,7 +879,7 @@ export async function saveScoreBookStatsAction(
       merged.set(key, p);
     }
   }
-  const rows = [...merged.values()].map((p) => ({ ...p, game_id: gameId, season_type: seasonType, scraped_at: now }));
+  const rows = [...merged.values()].map((p) => ({ ...p, game_id: gameId, season_type: seasonType, game_date: gameDate, scraped_at: now }));
 
   // Upsert per-game rows
   for (let i = 0; i < rows.length; i += 50) {

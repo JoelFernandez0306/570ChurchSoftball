@@ -431,9 +431,13 @@ async function discoverSchedule(page, scheduleUrl, baseUrlOverride = null) {
 
   console.log(`  ${eligibleGames.length} past game(s) of ${scheduleData.length} total | ${allDiscoveredTeamUrls.length} same-season team URL(s) found`);
 
+  const gameDates = new Map(
+    eligibleGames.map(item => [item.event.id, getEventDate(item)?.toISOString().slice(0, 10) ?? null])
+  );
   return {
     gameUrls:  eligibleGames.map(item => `${baseUrl}/schedule/${item.event.id}/game-stats`),
     teamUrls:  allDiscoveredTeamUrls,
+    gameDates,
   };
 }
 
@@ -669,7 +673,8 @@ async function main() {
   console.log("  ✓ Session valid\n");
 
   // ── Discover all past game IDs from the org schedule ────────────────────────
-  const gameIdSet = new Set();
+  const gameIdSet    = new Set();
+  const gameIdToDate = new Map(); // game_id → YYYY-MM-DD string
 
   // Box score base: org URL is preferred; fall back to team URL
   const orgBase    = GC_ORG_SCHEDULE_URL ? GC_ORG_SCHEDULE_URL.replace(/\/schedule$/, "") : null;
@@ -678,10 +683,10 @@ async function main() {
 
   if (GC_ORG_SCHEDULE_URL) {
     console.log(`\n  Discovering league games from: ${GC_ORG_SCHEDULE_URL}`);
-    const { gameUrls } = await discoverSchedule(page, GC_ORG_SCHEDULE_URL, teamBase);
+    const { gameUrls, gameDates } = await discoverSchedule(page, GC_ORG_SCHEDULE_URL, teamBase);
     for (const url of gameUrls) {
       const id = url.match(/\/schedule\/([A-Za-z0-9_-]{8,})(?:\/|$)/)?.[1];
-      if (id) gameIdSet.add(id);
+      if (id) { gameIdSet.add(id); if (gameDates.has(id)) gameIdToDate.set(id, gameDates.get(id)); }
     }
     console.log(`  League games found: ${gameIdSet.size}`);
   } else {
@@ -694,10 +699,10 @@ async function main() {
       if (visited.has(norm)) continue;
       visited.add(norm);
       console.log(`\n  Discovering: ${norm}`);
-      const { gameUrls, teamUrls } = await discoverSchedule(page, norm);
+      const { gameUrls, teamUrls, gameDates } = await discoverSchedule(page, norm);
       for (const url of gameUrls) {
         const id = url.match(/\/schedule\/([A-Za-z0-9_-]{8,})(?:\/|$)/)?.[1];
-        if (id) gameIdSet.add(id);
+        if (id) { gameIdSet.add(id); if (gameDates.has(id)) gameIdToDate.set(id, gameDates.get(id)); }
       }
       for (const url of teamUrls) {
         if (!visited.has(url.split("?")[0].replace(/\/$/, ""))) queue.push(url);
@@ -756,6 +761,7 @@ async function main() {
     const rowsWithMeta = gameRows.map(r => ({
       game_id:     gameId,
       season_type: SYNC_PHASE,
+      game_date:   gameIdToDate.get(gameId) ?? null,
       ...r,
     }));
 
