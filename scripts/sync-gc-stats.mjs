@@ -750,19 +750,27 @@ async function main() {
   }
 
   // ── Check which games are already in player_game_stats ───────────────────────
-  const alreadyScraped = new Set();
+  const alreadyScrapedComplete = new Set(); // has stats + game_time
+  const alreadyScrapedNoTime   = new Set(); // has stats but missing game_time
   for (let i = 0; i < allPastGameIds.length; i += 100) {
     const { data, error } = await supabase
       .from("player_game_stats")
-      .select("game_id")
+      .select("game_id,game_time")
       .in("game_id", allPastGameIds.slice(i, i + 100));
-    if (!error && data) for (const row of data) alreadyScraped.add(row.game_id);
+    if (!error && data) {
+      for (const row of data) {
+        if (row.game_time) alreadyScrapedComplete.add(row.game_id);
+        else               alreadyScrapedNoTime.add(row.game_id);
+      }
+    }
   }
 
-  const gameIdsToScrape = allPastGameIds.filter(id => !alreadyScraped.has(id));
+  // Scrape: new games + games missing game_time (to backfill the timestamp)
+  const gameIdsToScrape = allPastGameIds.filter(id => !alreadyScrapedComplete.has(id));
 
   console.log(`\n  Past games in schedule: ${allPastGameIds.length}`);
-  console.log(`  Already scraped:        ${alreadyScraped.size}`);
+  console.log(`  Complete (with time):   ${alreadyScrapedComplete.size}`);
+  console.log(`  Missing game_time:      ${alreadyScrapedNoTime.size}`);
   console.log(`  Need to scrape:         ${gameIdsToScrape.length}`);
 
   if (gameIdsToScrape.length === 0) {
