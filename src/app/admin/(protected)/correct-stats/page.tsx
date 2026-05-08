@@ -41,43 +41,71 @@ export default async function CorrectStatsPage({
       : { data: [] };
     const leagueGameMap = new Map((leagueGames ?? []).map((g) => [g.id, g]));
 
-    // GameChanger: match to league.games via team names
+    // GameChanger: match to league.games using the selected team's ID + game date
     const gcGameIds = gameIds.filter(id => !leagueGameMap.has(id));
-    const gcInfoMap = new Map<string, { gameDate: string; gameNumber: number | null; gameTime: string | null }>();
+
+    type GcInfo = { gameDate: string; gameNumber: number | null; gameTime: string | null; ambiguousLabel: string | null };
+    const gcInfoMap = new Map<string, GcInfo>();
 
     if (gcGameIds.length > 0) {
-      // Get every team_name involved in these GC games (both teams, not just the selected one)
-      const { data: gcTeamRows } = await supabase.schema("league").from("player_game_stats")
-        .select("game_id,team_name").in("game_id", gcGameIds);
-      const gcGameTeams = new Map<string, Set<string>>();
-      for (const row of gcTeamRows ?? []) {
-        const s = gcGameTeams.get(row.game_id) ?? new Set<string>();
-        s.add(row.team_name);
-        gcGameTeams.set(row.game_id, s);
+      // teamName comes from league.teams so we can look it up directly
+      const { data: selectedTeamRow } = await supabase.schema("league").from("teams")
+        .select("id").eq("name", teamName).single();
+      const selectedTeamId = selectedTeamRow?.id ?? null;
+
+      // For GC rows that have no game_date in the column yet, fall back to any
+      // all-team name match just to get the date
+      const gcDates = new Map<string, string>();
+      for (const [gameId, { date }] of byGame) {
+        if (!leagueGameMap.has(gameId) && date) gcDates.set(gameId, date);
       }
 
-      // Build team name → UUID map (case-insensitive)
-      const { data: allTeams } = await supabase.schema("league").from("teams").select("id,name");
-      const nameToId = new Map((allTeams ?? []).map(t => [t.name.toUpperCase(), t.id]));
+      // For games still missing a date, do a broad team-name lookup
+      const needDate = gcGameIds.filter(id => !gcDates.has(id));
+      if (needDate.length > 0) {
+        const { data: gcTeamRows } = await supabase.schema("league").from("player_game_stats")
+          .select("game_id,team_name").in("game_id", needDate);
+        const { data: allTeams } = await supabase.schema("league").from("teams").select("id,name");
+        const nameToId = new Map((allTeams ?? []).map(t => [t.name.toUpperCase(), t.id]));
+        const gcGameTeams = new Map<string, string[]>();
+        for (const row of gcTeamRows ?? []) {
+          const arr = gcGameTeams.get(row.game_id) ?? [];
+          const id = nameToId.get(row.team_name.toUpperCase());
+          if (id && !arr.includes(id)) arr.push(id);
+          gcGameTeams.set(row.game_id, arr);
+        }
+        for (const [gameId, tIds] of gcGameTeams) {
+          if (tIds.length < 1) continue;
+          const { data: any } = await supabase.schema("league").from("games")
+            .select("game_date").or(`home_team_id.in.(${tIds.join(",")}),away_team_id.in.(${tIds.join(",")})`)
+            .order("game_date").limit(1);
+          if (any?.[0]?.game_date) gcDates.set(gameId, any[0].game_date);
+        }
+      }
 
-      for (const [gameId, teamNameSet] of gcGameTeams) {
-        const teamIds = [...teamNameSet].map(n => nameToId.get(n.toUpperCase())).filter(Boolean) as string[];
-        if (teamIds.length < 2) continue;
+      // Now use team ID + date to find the specific game(s) — G1 and/or G2
+      function fmtTime(t: string | null) {
+        if (!t) return "?";
+        return new Date("1970-01-01T" + t).toLocaleTimeString("en-US", { hour: "numeric", minute: "2-digit", hour12: true });
+      }
+
+      for (const gameId of gcGameIds) {
+        const date = gcDates.get(gameId);
+        if (!date || !selectedTeamId) continue;
         const { data: matched } = await supabase.schema("league").from("games")
           .select("game_date,game_number,game_time")
-          .in("home_team_id", teamIds)
-          .in("away_team_id", teamIds)
+          .eq("game_date", date)
+          .or(`home_team_id.eq.${selectedTeamId},away_team_id.eq.${selectedTeamId}`)
           .order("game_number");
-        if (matched && matched.length > 0) {
-          gcInfoMap.set(gameId, {
-            gameDate: matched[0].game_date,
-            gameNumber: matched.length === 1 ? matched[0].game_number : null,
-            gameTime: matched.length === 1 ? matched[0].game_time : null,
-            ambiguousLabel: matched.length > 1
-              ? matched.map(g => `Game ${g.game_number} (${g.game_time ? new Date("1970-01-01T" + g.game_time).toLocaleTimeString("en-US", { hour: "numeric", minute: "2-digit", hour12: true }) : "?"})`).join(" or ")
-              : null,
-          });
-        }
+        if (!matched || matched.length === 0) continue;
+        gcInfoMap.set(gameId, {
+          gameDate: matched[0].game_date,
+          gameNumber: matched.length === 1 ? matched[0].game_number : null,
+          gameTime: matched.length === 1 ? matched[0].game_time : null,
+          ambiguousLabel: matched.length > 1
+            ? matched.map(g => `Game ${g.game_number} (${fmtTime(g.game_time)})`).join(" or ")
+            : null,
+        });
       }
     }
 
