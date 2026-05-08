@@ -9,6 +9,7 @@ interface GameGroup {
   source: "scorebook" | "gamechanger";
   gameDate: string | null;
   gameNumber: number | null;
+  gameTime: string | null;
   rows: GameStatRow[];
 }
 
@@ -93,7 +94,7 @@ export function CorrectStatsForm({ teamNames, selectedTeamName, gameGroups }: Pr
         <p style={{ color: "var(--ink-soft)" }}>No stats found for {selectedTeamName}. Use Upload Scorebook to add them.</p>
       )}
 
-      {groups.map(({ gameId, source, gameDate, gameNumber, rows }, gi) => (
+      {groups.map(({ gameId, source, gameDate, gameNumber, gameTime, rows }, gi) => (
         <article className="card" key={gameId}>
           <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", marginBottom: "0.75rem", flexWrap: "wrap", gap: "0.5rem" }}>
             <div style={{ display: "flex", flexDirection: "column", gap: "0.3rem" }}>
@@ -109,6 +110,11 @@ export function CorrectStatsForm({ teamNames, selectedTeamName, gameGroups }: Pr
                 {gameDate && (
                   <span style={{ fontSize: "0.85rem", color: "var(--ink-soft)" }}>
                     {new Date(gameDate + "T12:00:00").toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric" })}
+                  </span>
+                )}
+                {gameTime && (
+                  <span style={{ fontSize: "0.85rem", color: "var(--ink-soft)" }}>
+                    · {new Date("1970-01-01T" + gameTime).toLocaleTimeString("en-US", { hour: "numeric", minute: "2-digit", hour12: true })}
                   </span>
                 )}
                 {gameNumber && (
