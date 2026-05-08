@@ -29,7 +29,7 @@ export default async function CorrectStatsPage({
     // Group by game_id
     const byGame = new Map<string, { date: string | null; rows: GameStatRow[] }>();
     for (const row of data ?? []) {
-      const entry = byGame.get(row.game_id) ?? { date: row.game_date ?? null, rows: [] };
+      const entry = byGame.get(row.game_id) ?? { date: row.game_date ?? null, rows: [] as GameStatRow[] };
       entry.rows.push(row as GameStatRow);
       byGame.set(row.game_id, entry);
     }
