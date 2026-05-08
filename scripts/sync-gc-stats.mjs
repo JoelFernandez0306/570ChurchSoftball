@@ -460,6 +460,8 @@ function parseTimeToSQL(timeText) {
   const ampm = m[3].toUpperCase();
   if (ampm === "PM" && h !== 12) h += 12;
   if (ampm === "AM" && h === 12) h = 0;
+  // GC renders time in UTC on GitHub Actions runners; league plays in EDT (UTC-4)
+  h = (h - 4 + 24) % 24;
   return `${String(h).padStart(2, "0")}:${min}:00`;
 }
 
