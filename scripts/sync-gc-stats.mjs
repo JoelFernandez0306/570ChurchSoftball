@@ -314,7 +314,7 @@ async function discoverSchedule(page, scheduleUrl, baseUrlOverride = null) {
       if (!cardsFound) {
         console.warn("  Game cards never appeared — session may have expired or page failed to load.");
         await page.screenshot({ path: "gc-stats-debug.png" });
-        return { gameUrls: [], teamUrls: [] };
+        return { gameUrls: [], teamUrls: [], gameDates: new Map() };
       }
 
       // Step 2: GC loads game statuses (FINAL/score) asynchronously AFTER the card skeleton.
@@ -364,13 +364,14 @@ async function discoverSchedule(page, scheduleUrl, baseUrlOverride = null) {
       return {
         gameUrls: finalGameIds.map(id => `${orgBase}/schedule/${id}`),
         teamUrls: [],
+        gameDates: new Map(),
       };
     }
 
     // Team page fallback: no date info, skip game links to avoid including future games
     console.warn(`  ⚠️  API intercept missed for ${scheduleUrl} — skipping game links (no date info).`);
     console.warn(`     ${domTeamUrls.length} team URL(s) from DOM still queued for discovery.`);
-    return { gameUrls: [], teamUrls: domTeamUrls };
+    return { gameUrls: [], teamUrls: domTeamUrls, gameDates: new Map() };
   }
 
   // For org schedule pages the URL has no team context, so use the override
