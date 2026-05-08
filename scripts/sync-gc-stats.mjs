@@ -482,12 +482,14 @@ async function scrapeBoxScore(page, boxScoreUrl) {
   }
   await page.waitForTimeout(300);
 
-  // Extract game start time from the page header (e.g. "Mon May 4, 7:00 PM ET")
+  // Extract game start time from the event header (e.g. "Mon May 4, 7:00 PM ET")
+  // Primary: data-testid="event-time" div; fallback: any short leaf with a time pattern
   const gameTimeRaw = await page.evaluate(() => {
+    const specific = document.querySelector('[data-testid="event-time"]');
+    if (specific) return specific.textContent?.trim() ?? null;
     const timeRegex = /\d{1,2}:\d{2}\s*[AP]M/i;
-    const all = Array.from(document.querySelectorAll("*"));
-    for (const el of all) {
-      if (el.children.length > 0) continue; // leaf nodes only
+    for (const el of Array.from(document.querySelectorAll("*"))) {
+      if (el.children.length > 0) continue;
       const text = el.textContent?.trim() ?? "";
       if (timeRegex.test(text) && text.length < 60) return text;
     }
