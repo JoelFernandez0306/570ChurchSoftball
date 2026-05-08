@@ -566,6 +566,7 @@ function aggregateStats(allGameRows) {
   const byPlayer = new Map();
 
   for (const row of allGameRows) {
+    if ((row.gp ?? 1) === 0) continue;
     const key = `${row.player_name}|${row.team_name}|${row.season_type}`;
     if (!byPlayer.has(key)) {
       byPlayer.set(key, { player_name: row.player_name, team_name: row.team_name, season_type: row.season_type, gp: 0 });
@@ -762,6 +763,7 @@ async function main() {
       game_id:     gameId,
       season_type: SYNC_PHASE,
       game_date:   gameIdToDate.get(gameId) ?? null,
+      gp:          1,
       ...r,
     }));
 

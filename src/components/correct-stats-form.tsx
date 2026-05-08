@@ -18,9 +18,9 @@ interface Props {
   gameGroups: GameGroup[];
 }
 
-const STAT_COLS = ["ab","r","h","doubles","triples","hr","rbi","bb","so"] as const;
+const STAT_COLS = ["gp","ab","r","h","doubles","triples","hr","rbi","bb","so"] as const;
 const COL_LABEL: Record<string, string> = {
-  ab: "AB", r: "R", h: "H", doubles: "2B", triples: "3B", hr: "HR",
+  gp: "GP", ab: "AB", r: "R", h: "H", doubles: "2B", triples: "3B", hr: "HR",
   rbi: "RBI", bb: "BB", so: "SO",
 };
 
@@ -141,10 +141,10 @@ export function CorrectStatsForm({ teamNames, selectedTeamName, gameGroups }: Pr
                     {STAT_COLS.map((f) => (
                       <td key={f}>
                         <input
-                          type="number" min={0}
-                          value={(row[f as keyof GameStatRow] as number) ?? 0}
+                          type="number" min={0} max={f === "gp" ? 1 : undefined}
+                          value={(row[f as keyof GameStatRow] as number) ?? (f === "gp" ? 1 : 0)}
                           onChange={(e) => setStat(gameId, playerIdx, f as keyof GameStatRow, parseInt(e.target.value, 10) || 0)}
-                          style={{ width: 48, textAlign: "center", padding: "0.15rem" }}
+                          style={{ width: f === "gp" ? 40 : 48, textAlign: "center", padding: "0.15rem", background: f === "gp" ? "#fef9c3" : undefined }}
                         />
                       </td>
                     ))}

@@ -813,6 +813,7 @@ export interface GameStatRow {
   player_name: string;
   team_name: string;
   season_type: string;
+  gp: number;
   ab: number;
   r: number;
   h: number;
@@ -879,7 +880,7 @@ export async function saveScoreBookStatsAction(
       merged.set(key, p);
     }
   }
-  const rows = [...merged.values()].map((p) => ({ ...p, game_id: gameId, season_type: seasonType, game_date: gameDate, scraped_at: now }));
+  const rows = [...merged.values()].map((p) => ({ ...p, game_id: gameId, season_type: seasonType, game_date: gameDate, gp: 1, scraped_at: now }));
 
   // Upsert per-game rows
   for (let i = 0; i < rows.length; i += 50) {
@@ -896,13 +897,14 @@ export async function saveScoreBookStatsAction(
     const { data: allRows, error: readErr } = await supabase
       .schema("league")
       .from("player_game_stats")
-      .select("player_name,ab,r,h,singles,doubles,triples,hr,rbi,bb,so")
+      .select("player_name,gp,ab,r,h,singles,doubles,triples,hr,rbi,bb,so")
       .eq("team_name", team)
       .eq("season_type", seasonType);
     if (readErr) throw new Error(`Failed to read game stats: ${readErr.message}`);
 
     const byPlayer = new Map<string, { gp: number; ab: number; r: number; h: number; singles: number; doubles: number; triples: number; hr: number; rbi: number; bb: number; so: number }>();
     for (const row of allRows ?? []) {
+      if ((row.gp ?? 1) === 0) continue;
       const agg = byPlayer.get(row.player_name) ?? { gp: 0, ab: 0, r: 0, h: 0, singles: 0, doubles: 0, triples: 0, hr: 0, rbi: 0, bb: 0, so: 0 };
       agg.gp++;
       for (const col of ["ab","r","h","singles","doubles","triples","hr","rbi","bb","so"] as const) {
@@ -944,6 +946,7 @@ export async function updateGameStatsAction(
     player_name: r.player_name,
     team_name: r.team_name,
     season_type: r.season_type,
+    gp: r.gp ?? 1,
     ab: r.ab, r: r.r, h: r.h,
     singles: r.singles, doubles: r.doubles, triples: r.triples, hr: r.hr,
     rbi: r.rbi, bb: r.bb, so: r.so,
@@ -962,12 +965,13 @@ export async function updateGameStatsAction(
     const seasonType = rows.find((r) => r.team_name === team)!.season_type;
     const { data: allRows, error: readErr } = await supabase
       .schema("league").from("player_game_stats")
-      .select("player_name,ab,r,h,singles,doubles,triples,hr,rbi,bb,so")
+      .select("player_name,gp,ab,r,h,singles,doubles,triples,hr,rbi,bb,so")
       .eq("team_name", team).eq("season_type", seasonType);
     if (readErr) throw new Error(`Failed to read game stats: ${readErr.message}`);
 
     const byPlayer = new Map<string, { gp: number; ab: number; r: number; h: number; singles: number; doubles: number; triples: number; hr: number; rbi: number; bb: number; so: number }>();
     for (const row of allRows ?? []) {
+      if ((row.gp ?? 1) === 0) continue;
       const agg = byPlayer.get(row.player_name) ?? { gp: 0, ab: 0, r: 0, h: 0, singles: 0, doubles: 0, triples: 0, hr: 0, rbi: 0, bb: 0, so: 0 };
       agg.gp++;
       for (const col of ["ab","r","h","singles","doubles","triples","hr","rbi","bb","so"] as const) {

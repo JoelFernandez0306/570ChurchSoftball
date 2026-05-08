@@ -22,7 +22,7 @@ export default async function CorrectStatsPage({
     const { data } = await supabase
       .schema("league")
       .from("player_game_stats")
-      .select("game_id,game_date,player_name,team_name,season_type,ab,r,h,singles,doubles,triples,hr,rbi,bb,so")
+      .select("game_id,game_date,player_name,team_name,season_type,gp,ab,r,h,singles,doubles,triples,hr,rbi,bb,so")
       .eq("team_name", teamName)
       .order("player_name");
 
