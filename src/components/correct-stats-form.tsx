@@ -4,7 +4,13 @@ import { useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
 import { updateGameStatsAction, type GameStatRow } from "@/app/admin/(protected)/actions";
 
-interface GameGroup { gameId: string; rows: GameStatRow[]; }
+interface GameGroup {
+  gameId: string;
+  source: "scorebook" | "gamechanger";
+  gameDate: string | null;
+  gameNumber: number | null;
+  rows: GameStatRow[];
+}
 
 interface Props {
   teamNames: string[];
@@ -87,12 +93,34 @@ export function CorrectStatsForm({ teamNames, selectedTeamName, gameGroups }: Pr
         <p style={{ color: "var(--ink-soft)" }}>No stats found for {selectedTeamName}. Use Upload Scorebook to add them.</p>
       )}
 
-      {groups.map(({ gameId, rows }, gi) => (
+      {groups.map(({ gameId, source, gameDate, gameNumber, rows }, gi) => (
         <article className="card" key={gameId}>
-          <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: "0.75rem", flexWrap: "wrap", gap: "0.5rem" }}>
-            <h3 style={{ margin: 0, fontSize: "0.9rem", color: "var(--ink-soft)", fontFamily: "monospace" }}>
-              Game ID: {gameId.slice(0, 8)}…
-            </h3>
+          <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", marginBottom: "0.75rem", flexWrap: "wrap", gap: "0.5rem" }}>
+            <div style={{ display: "flex", flexDirection: "column", gap: "0.3rem" }}>
+              <div style={{ display: "flex", alignItems: "center", gap: "0.5rem", flexWrap: "wrap" }}>
+                <span style={{
+                  display: "inline-block", fontSize: "0.75rem", fontWeight: 700,
+                  padding: "0.15rem 0.55rem", borderRadius: "999px",
+                  background: source === "scorebook" ? "#dbeafe" : "#dcfce7",
+                  color: source === "scorebook" ? "#1e40af" : "#166534",
+                }}>
+                  {source === "scorebook" ? "Paper Scorebook" : "GameChanger"}
+                </span>
+                {gameDate && (
+                  <span style={{ fontSize: "0.85rem", color: "var(--ink-soft)" }}>
+                    {new Date(gameDate + "T12:00:00").toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric" })}
+                  </span>
+                )}
+                {gameNumber && (
+                  <span style={{ fontSize: "0.85rem", color: "var(--ink-soft)" }}>
+                    · Game {gameNumber}
+                  </span>
+                )}
+              </div>
+              <span style={{ fontSize: "0.8rem", color: "var(--ink-soft)", fontFamily: "monospace" }}>
+                {gameId}
+              </span>
+            </div>
             {savedGameId === gameId && (
               <span style={{ color: "#166534", fontSize: "0.85rem" }}>✓ Saved</span>
             )}

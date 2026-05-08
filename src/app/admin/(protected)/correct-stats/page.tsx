@@ -15,7 +15,7 @@ export default async function CorrectStatsPage({
   const teams = await loadTeams();
   const teamNames = teams.map((t) => t.name).sort();
 
-  let gameGroups: { gameId: string; rows: GameStatRow[] }[] = [];
+  let gameGroups: { gameId: string; source: "scorebook" | "gamechanger"; gameDate: string | null; gameNumber: number | null; rows: GameStatRow[] }[] = [];
 
   if (teamName) {
     const supabase = getServiceSupabaseClient();
@@ -33,7 +33,24 @@ export default async function CorrectStatsPage({
       rows.push(row as GameStatRow);
       byGame.set(row.game_id, rows);
     }
-    gameGroups = [...byGame.entries()].map(([gameId, rows]) => ({ gameId, rows }));
+    const gameIds = [...byGame.keys()];
+
+    // Look up which game_ids exist in league.games — those are scorebook uploads
+    const { data: leagueGames } = gameIds.length > 0
+      ? await supabase.schema("league").from("games").select("id,game_date,game_number").in("id", gameIds)
+      : { data: [] };
+    const leagueGameMap = new Map((leagueGames ?? []).map((g) => [g.id, g]));
+
+    gameGroups = [...byGame.entries()].map(([gameId, rows]) => {
+      const lg = leagueGameMap.get(gameId);
+      return {
+        gameId,
+        source: lg ? "scorebook" : "gamechanger",
+        gameDate: lg?.game_date ?? null,
+        gameNumber: lg?.game_number ?? null,
+        rows,
+      };
+    });
   }
 
   return (
@@ -49,6 +66,7 @@ export default async function CorrectStatsPage({
         selectedTeamName={teamName ?? ""}
         gameGroups={gameGroups}
       />
+
     </section>
   );
 }
