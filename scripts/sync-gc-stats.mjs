@@ -451,6 +451,18 @@ async function discoverSchedule(page, scheduleUrl, baseUrlOverride = null) {
 // Each player row: [role="row"] > [role="gridcell"][col-id="AB|R|H|RBI|BB|SO"]
 // Player name: span.BoxScoreComponents__playerName inside col-id="player"
 
+function parseTimeToSQL(timeText) {
+  if (!timeText) return null;
+  const m = timeText.match(/(\d{1,2}):(\d{2})\s*(AM|PM)/i);
+  if (!m) return null;
+  let h = parseInt(m[1], 10);
+  const min = m[2];
+  const ampm = m[3].toUpperCase();
+  if (ampm === "PM" && h !== 12) h += 12;
+  if (ampm === "AM" && h === 12) h = 0;
+  return `${String(h).padStart(2, "0")}:${min}:00`;
+}
+
 async function scrapeBoxScore(page, boxScoreUrl) {
   try {
     await page.goto(boxScoreUrl, { waitUntil: "domcontentloaded", timeout: 60000 });
@@ -466,11 +478,25 @@ async function scrapeBoxScore(page, boxScoreUrl) {
     const sample = await page.evaluate(() => document.body.innerText.slice(0, 400));
     console.warn(`    Box score not available. Page: ${sample.replace(/\n+/g, " | ").slice(0, 200)}`);
     await page.screenshot({ path: "gc-stats-debug.png" });
-    return [];
+    return { rows: [], gameTime: null };
   }
   await page.waitForTimeout(300);
 
-  return await page.evaluate(() => {
+  // Extract game start time from the page header (e.g. "Mon May 4, 7:00 PM ET")
+  const gameTimeRaw = await page.evaluate(() => {
+    const timeRegex = /\d{1,2}:\d{2}\s*[AP]M/i;
+    const all = Array.from(document.querySelectorAll("*"));
+    for (const el of all) {
+      if (el.children.length > 0) continue; // leaf nodes only
+      const text = el.textContent?.trim() ?? "";
+      if (timeRegex.test(text) && text.length < 60) return text;
+    }
+    return null;
+  });
+  const gameTime = parseTimeToSQL(gameTimeRaw);
+  if (gameTime) console.log(`    Game time: ${gameTimeRaw} → ${gameTime}`);
+
+  const rows = await page.evaluate(() => {
     function stat(el, colId) {
       return parseInt(el.querySelector(`[role="gridcell"][col-id="${colId}"]`)?.textContent?.trim() ?? "0", 10) || 0;
     }
@@ -558,6 +584,8 @@ async function scrapeBoxScore(page, boxScoreUrl) {
 
     return results;
   });
+
+  return { rows, gameTime };
 }
 
 
@@ -750,7 +778,7 @@ async function main() {
     const boxScoreUrl = `${schedBase}/schedule/${gameId}/box-score`;
     console.log(`\n  ── Game ${gi + 1}/${gameIdsToScrape.length}: ${boxScoreUrl}`);
 
-    const gameRows = await scrapeBoxScore(page, boxScoreUrl);
+    const { rows: gameRows, gameTime } = await scrapeBoxScore(page, boxScoreUrl);
 
     if (gameRows.length === 0) {
       console.warn("    No data — will retry next run.");
@@ -764,6 +792,7 @@ async function main() {
       game_id:     gameId,
       season_type: SYNC_PHASE,
       game_date:   gameIdToDate.get(gameId) ?? null,
+      game_time:   gameTime,
       gp:          1,
       ...r,
     }));

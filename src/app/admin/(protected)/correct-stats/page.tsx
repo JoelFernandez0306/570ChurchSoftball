@@ -15,21 +15,21 @@ export default async function CorrectStatsPage({
   const teams = await loadTeams();
   const teamNames = teams.map((t) => t.name).sort();
 
-  let gameGroups: { gameId: string; source: "scorebook" | "gamechanger"; gameDate: string | null; gameNumber: number | null; gameTime: string | null; rows: GameStatRow[] }[] = [];
+  let gameGroups: { gameId: string; source: "scorebook" | "gamechanger"; gameDate: string | null; gameNumber: number | null; gameTime: string | null; ambiguousLabel: string | null; rows: GameStatRow[] }[] = [];
 
   if (teamName) {
     const supabase = getServiceSupabaseClient();
     const { data } = await supabase
       .schema("league")
       .from("player_game_stats")
-      .select("game_id,game_date,player_name,team_name,season_type,gp,ab,r,h,singles,doubles,triples,hr,rbi,bb,so")
+      .select("game_id,game_date,game_time,player_name,team_name,season_type,gp,ab,r,h,singles,doubles,triples,hr,rbi,bb,so")
       .eq("team_name", teamName)
       .order("player_name");
 
     // Group by game_id
-    const byGame = new Map<string, { date: string | null; rows: GameStatRow[] }>();
+    const byGame = new Map<string, { date: string | null; time: string | null; rows: GameStatRow[] }>();
     for (const row of data ?? []) {
-      const entry = byGame.get(row.game_id) ?? { date: row.game_date ?? null, rows: [] as GameStatRow[] };
+      const entry = byGame.get(row.game_id) ?? { date: row.game_date ?? null, time: row.game_time ?? null, rows: [] as GameStatRow[] };
       entry.rows.push(row as GameStatRow);
       byGame.set(row.game_id, entry);
     }
@@ -73,12 +73,15 @@ export default async function CorrectStatsPage({
             gameDate: matched[0].game_date,
             gameNumber: matched.length === 1 ? matched[0].game_number : null,
             gameTime: matched.length === 1 ? matched[0].game_time : null,
+            ambiguousLabel: matched.length > 1
+              ? matched.map(g => `Game ${g.game_number} (${g.game_time ? new Date("1970-01-01T" + g.game_time).toLocaleTimeString("en-US", { hour: "numeric", minute: "2-digit", hour12: true }) : "?"})`).join(" or ")
+              : null,
           });
         }
       }
     }
 
-    gameGroups = [...byGame.entries()].map(([gameId, { date, rows }]) => {
+    gameGroups = [...byGame.entries()].map(([gameId, { date, time, rows }]) => {
       const lg = leagueGameMap.get(gameId);
       const gc = gcInfoMap.get(gameId);
       return {
@@ -86,7 +89,8 @@ export default async function CorrectStatsPage({
         source: lg ? "scorebook" : "gamechanger",
         gameDate: lg?.game_date ?? gc?.gameDate ?? date,
         gameNumber: lg?.game_number ?? gc?.gameNumber ?? null,
-        gameTime: lg?.game_time ?? gc?.gameTime ?? null,
+        gameTime: lg?.game_time ?? time ?? gc?.gameTime ?? null,
+        ambiguousLabel: gc?.ambiguousLabel ?? null,
         rows,
       };
     });

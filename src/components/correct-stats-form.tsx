@@ -10,6 +10,7 @@ interface GameGroup {
   gameDate: string | null;
   gameNumber: number | null;
   gameTime: string | null;
+  ambiguousLabel: string | null;
   rows: GameStatRow[];
 }
 
@@ -94,7 +95,7 @@ export function CorrectStatsForm({ teamNames, selectedTeamName, gameGroups }: Pr
         <p style={{ color: "var(--ink-soft)" }}>No stats found for {selectedTeamName}. Use Upload Scorebook to add them.</p>
       )}
 
-      {groups.map(({ gameId, source, gameDate, gameNumber, gameTime, rows }, gi) => (
+      {groups.map(({ gameId, source, gameDate, gameNumber, gameTime, ambiguousLabel, rows }, gi) => (
         <article className="card" key={gameId}>
           <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", marginBottom: "0.75rem", flexWrap: "wrap", gap: "0.5rem" }}>
             <div style={{ display: "flex", flexDirection: "column", gap: "0.3rem" }}>
@@ -120,6 +121,11 @@ export function CorrectStatsForm({ teamNames, selectedTeamName, gameGroups }: Pr
                 {gameNumber && (
                   <span style={{ fontSize: "0.85rem", color: "var(--ink-soft)" }}>
                     · Game {gameNumber}
+                  </span>
+                )}
+                {!gameNumber && !gameTime && ambiguousLabel && (
+                  <span style={{ fontSize: "0.8rem", color: "var(--ink-soft)", fontStyle: "italic" }}>
+                    · {ambiguousLabel}
                   </span>
                 )}
               </div>
