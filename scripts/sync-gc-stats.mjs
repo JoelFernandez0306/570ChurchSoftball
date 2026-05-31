@@ -442,6 +442,93 @@ async function discoverSchedule(page, scheduleUrl, baseUrlOverride = null) {
   };
 }
 
+// ── Game-stats page fallback scraper ─────────────────────────────────────────
+// Used when the /box-score AG Grid player rows never appear.
+// Navigates to /game-stats, clicks each team's Batting tab, and extracts via
+// the spatial approach (extractAdvancedStats), which is class-name-agnostic.
+
+const EXCLUDED_UI_BUTTONS = new Set([
+  "BOX SCORE","GAME STATS","BATTING","PITCHING","FIELDING",
+  "STANDARD","ADVANCED","PLAYS","VIDEOS","RECAP","INSIGHTS",
+  "INFO","STARTING LINEUP","EDIT STATS","HOME","SCHEDULE",
+  "TEAM","STATS","OPPONENTS","TOOLS","GET THE APP","SIGN IN",
+  "SIGN UP","TRY FOR FREE","SUPPORT","ACCOUNT","SIGN OUT",
+  "BUY A TEAM PASS","BACK TO SCHEDULE","ADD EVENT",
+]);
+
+async function scrapeViaGameStats(page, gameId, schedBase) {
+  const url = `${schedBase}/schedule/${gameId}/game-stats`;
+  console.log(`    Fallback → game-stats: ${url}`);
+  try {
+    await page.goto(url, { waitUntil: "domcontentloaded", timeout: 60000 });
+  } catch (e) {
+    console.warn("    Game-stats load warning:", e.message);
+  }
+
+  const battingFound = await page.locator(
+    'button:has-text("Batting"), [role="tab"]:has-text("Batting")'
+  ).first().waitFor({ timeout: 15000 }).then(() => true).catch(() => false);
+
+  if (!battingFound) {
+    console.warn("    Game-stats: Batting tab not found — no data.");
+    return [];
+  }
+
+  // Find the two team toggle buttons (filtered from all interactive elements)
+  const teamButtons = await page.evaluate((excluded) => {
+    const seen = new Set();
+    const out = [];
+    for (const el of document.querySelectorAll('button, [role="tab"], [role="button"]')) {
+      const text = (el.textContent?.trim() ?? "");
+      if (text.length < 3 || text.length > 55) continue;
+      if (!/[a-zA-Z]{2}/.test(text)) continue;
+      if (excluded.has(text.toUpperCase())) continue;
+      if (seen.has(text)) continue;
+      seen.add(text);
+      out.push(text);
+    }
+    return out.slice(0, 2);
+  }, EXCLUDED_UI_BUTTONS);
+
+  const rows = [];
+  const teamsToProcess = teamButtons.length >= 1 ? teamButtons : ["Team 1"];
+
+  for (const teamName of teamsToProcess) {
+    if (teamButtons.length >= 2) {
+      await tryClick(page, teamName);
+      await page.waitForTimeout(600);
+    }
+    await tryClick(page, "Batting");
+    await page.waitForTimeout(1000);
+
+    const extracted = await extractAdvancedStats(page);
+    console.log(`    Game-stats fallback: ${extracted.length} player rows for "${teamName}"`);
+
+    for (const r of extracted) {
+      const h       = parseStat(r.H)   ?? 0;
+      const doubles = parseStat(r["2B"]) ?? 0;
+      const triples = parseStat(r["3B"]) ?? 0;
+      const hr      = parseStat(r.HR)  ?? 0;
+      rows.push({
+        player_name: r.PLAYER,
+        team_name:   teamName,
+        ab:      parseStat(r.AB)  ?? 0,
+        r:       parseStat(r.R)   ?? 0,
+        h,
+        rbi:     parseStat(r.RBI) ?? 0,
+        bb:      parseStat(r.BB)  ?? 0,
+        so:      parseStat(r.SO)  ?? 0,
+        doubles,
+        triples,
+        hr,
+        singles: Math.max(0, h - doubles - triples - hr),
+      });
+    }
+  }
+
+  return rows;
+}
+
 // ── Box score scraper ─────────────────────────────────────────────────────────
 // GC renders box scores with AG Grid. DOM structure (confirmed from DevTools):
 //   .BoxScore__awayTeamName / .BoxScore__homeTeamName  — team headings
@@ -477,9 +564,9 @@ async function scrapeBoxScore(page, boxScoreUrl) {
     .waitFor({ timeout: 25000 }).then(() => true).catch(() => false);
 
   if (!found) {
-    const sample = await page.evaluate(() => document.body.innerText.slice(0, 400));
-    console.warn(`    Box score not available. Page: ${sample.replace(/\n+/g, " | ").slice(0, 200)}`);
-    await page.screenshot({ path: "gc-stats-debug.png" });
+    const sample = await page.evaluate(() => document.body.innerText.slice(0, 800));
+    console.warn(`    Box score AG Grid not found. Page text: ${sample.replace(/\n+/g, " | ").slice(0, 400)}`);
+    if (DEBUG) await page.screenshot({ path: "gc-stats-debug.png" });
     return { rows: [], gameTime: null };
   }
   await page.waitForTimeout(300);
@@ -790,7 +877,11 @@ async function main() {
     const boxScoreUrl = `${schedBase}/schedule/${gameId}/box-score`;
     console.log(`\n  ── Game ${gi + 1}/${gameIdsToScrape.length}: ${boxScoreUrl}`);
 
-    const { rows: gameRows, gameTime } = await scrapeBoxScore(page, boxScoreUrl);
+    let { rows: gameRows, gameTime } = await scrapeBoxScore(page, boxScoreUrl);
+
+    if (gameRows.length === 0) {
+      gameRows = await scrapeViaGameStats(page, gameId, schedBase);
+    }
 
     if (gameRows.length === 0) {
       console.warn("    No data — will retry next run.");
